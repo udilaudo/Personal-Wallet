@@ -1,0 +1,52 @@
+# ---------------------------------------------------------------
+# config_test.yaml - TEMPLATE EXAMPLE
+# Copy this file to config.yaml and fill in your own values.
+# NEVER commit config.yaml to version control.
+# ---------------------------------------------------------------
+
+cookie:
+  expiry_days: 30               # Number of days before cookie expires
+  key: your_cookie_key_here     # Random secret string for cookie signing
+  name: your_cookie_name_here   # Name of the auth cookie
+
+credentials:
+  usernames:
+    your_username:
+      categories_list:
+        - Groceries
+        - Sport
+        - Eating Out
+        - Car
+        - Home
+        - Bills
+        - Health
+        - Subscriptions
+        - Transport
+        - Other
+        - Income
+      commission: 0.0           # Commission for money transfers (e.g. PayPal fee)
+      conti_list:
+        - checking_account      # Principal account
+        - prepaid_card
+        - cash
+        - paypal
+      email: your_email@example.com
+      failed_login_attempts: 0
+      first_name: YourFirstName
+      logged_in:                # Leave blank
+      password:                 # Hashed password (use streamlit-authenticator to generate)
+      roles:
+        - viewer
+      subscriptions:
+        ExampleService:
+          amount: 9.99
+          conto: checking_account
+          end_date: 2026-01-01
+          start_date: 2025-01-01
+          status: active
+      surname: YourSurname
+      wallet_path: /data/wallet_your_username.csv
+
+path:
+  ico_path: /ico/ico.png
+  img_path: /plots/

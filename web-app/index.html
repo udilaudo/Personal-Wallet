@@ -1,0 +1,740 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Wallet — Personal Finance</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <link rel="stylesheet" href="style.css?v=4" />
+</head>
+<body>
+
+<!-- ======================== HEADER ======================== -->
+<header class="app-header">
+  <div class="header-left">
+    <div class="logo-icon"><i data-lucide="wallet"></i></div>
+    <h1 class="logo">Wallet</h1>
+  </div>
+  <nav class="header-nav">
+    <button class="nav-btn active" data-page="main">
+      <i data-lucide="layout-dashboard"></i>
+      <span>Dashboard</span>
+    </button>
+    <button class="nav-btn" data-page="filtered">
+      <i data-lucide="bar-chart-3"></i>
+      <span>Analytics</span>
+    </button>
+    <button class="nav-btn" data-page="investments">
+      <i data-lucide="trending-up"></i>
+      <span>Investments</span>
+    </button>
+    <button class="nav-btn" data-page="settings">
+      <i data-lucide="settings"></i>
+      <span>Settings</span>
+    </button>
+    <!-- Separatore e toggle tema visibile su desktop -->
+    <span class="nav-separator"></span>
+    <button class="btn-icon-header" id="btn-theme-toggle-desktop" title="Toggle theme">
+      <i data-lucide="moon"></i>
+    </button>
+  </nav>
+  <div class="header-right">
+    <!-- Pulsante toggle tema chiaro/scuro -->
+    <button class="btn-icon-header" id="btn-theme-toggle" title="Toggle theme">
+      <i data-lucide="moon"></i>
+    </button>
+    <button class="btn-icon-header" id="btn-mobile-menu" title="Menu">
+      <i data-lucide="menu"></i>
+    </button>
+  </div>
+</header>
+
+<!-- ======================== MOBILE NAV OVERLAY ======================== -->
+<div class="mobile-nav-overlay hidden" id="mobile-nav-overlay">
+  <div class="mobile-nav-panel">
+    <button class="mobile-nav-close" id="mobile-nav-close"><i data-lucide="x"></i></button>
+    <nav class="mobile-nav-links">
+      <button class="mobile-nav-btn active" data-page="main"><i data-lucide="layout-dashboard"></i> Dashboard</button>
+      <button class="mobile-nav-btn" data-page="filtered"><i data-lucide="bar-chart-3"></i> Analytics</button>
+      <button class="mobile-nav-btn" data-page="investments"><i data-lucide="trending-up"></i> Investments</button>
+      <button class="mobile-nav-btn" data-page="settings"><i data-lucide="settings"></i> Settings</button>
+    </nav>
+  </div>
+</div>
+
+<!-- ======================== MAIN CONTENT ======================== -->
+<main class="main-content">
+
+  <!-- ========== DASHBOARD ========== -->
+  <section class="page" id="page-main">
+    <!-- Summary Cards -->
+    <div class="summary-cards" id="summary-main"></div>
+
+    <!-- Account Balances Row + Pie -->
+    <div class="account-section">
+      <div class="account-balances-row" id="account-balances"></div>
+      <div class="account-pie-wrapper">
+        <canvas id="chart-accounts-pie"></canvas>
+      </div>
+    </div>
+
+    <!-- Action Bar -->
+    <div class="action-bar">
+      <h2 class="section-title">Transactions</h2>
+      <div class="action-bar-right">
+        <button class="btn btn-primary btn-with-icon" id="btn-open-add">
+          <i data-lucide="plus"></i> Add Transaction
+        </button>
+        <button class="btn btn-outline btn-with-icon" id="btn-open-transfer">
+          <i data-lucide="arrow-right-left"></i> Transfer
+        </button>
+      </div>
+    </div>
+
+    <!-- Transactions Table -->
+    <div class="table-card">
+      <div class="table-scroll" id="main-table-scroll">
+        <table id="transactions-table">
+          <thead>
+            <tr>
+              <th>Amount</th>
+              <th>Category</th>
+              <th>Description</th>
+              <th>Date</th>
+              <th>Account</th>
+              <th>Type</th>
+              <th class="th-actions">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="transactions-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Pivot Table -->
+    <div class="table-card" id="pivot-container-main">
+      <div class="table-card-header">
+        <h3>Monthly Overview</h3>
+      </div>
+      <div class="table-scroll no-vscroll" id="pivot-table-scroll">
+        <table class="pivot-table" id="pivot-table-main">
+          <thead id="pivot-head-main"></thead>
+          <tbody id="pivot-body-main"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Charts -->
+    <div class="chart-card">
+      <div class="chart-card-header">
+        <h3>Charts</h3>
+        <div class="chart-buttons">
+          <button class="chip active" data-chart="pie-categories">Categories Pie</button>
+          <button class="chip" data-chart="bar">Categories</button>
+          <button class="chip" data-chart="pie-income-expense">Income/Expense</button>
+          <button class="chip" data-chart="pie-accounts">Accounts</button>
+          <button class="chip" data-chart="time-series">Timeline</button>
+          <span class="chip-separator"></span>
+          <button class="chip chip-toggle" id="toggle-saldo-main">Excl. Saldo</button>
+        </div>
+      </div>
+      <div class="chart-wrapper">
+        <canvas id="chart-main"></canvas>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== ANALYTICS (FILTERED DATA) ========== -->
+  <section class="page hidden" id="page-filtered">
+    <!-- Filter Bar -->
+    <div class="filter-bar">
+      <!-- Header con titolo e pulsante Apply -->
+      <div class="filter-bar-header">
+        <h2 class="section-title">Analytics</h2>
+        <button class="btn btn-primary btn-with-icon" id="btn-apply-filters">
+          <i data-lucide="search"></i> Apply Filters
+        </button>
+      </div>
+
+      <!-- Sezione Date: preset rapidi + date picker -->
+      <div class="filter-section">
+        <div class="filter-section-label">
+          <i data-lucide="calendar"></i> Period
+        </div>
+        <!-- Pulsanti preset per selezione rapida del periodo -->
+        <div class="date-presets" id="date-presets">
+          <button class="preset-btn" data-preset="this-month">This Month</button>
+          <button class="preset-btn active" data-preset="last-2">Last 2 Months</button>
+          <button class="preset-btn" data-preset="last-3">Last 3 Months</button>
+          <button class="preset-btn" data-preset="last-6">Last 6 Months</button>
+          <button class="preset-btn" data-preset="this-year">This Year</button>
+          <button class="preset-btn" data-preset="all">All Time</button>
+        </div>
+        <!-- Date picker per range personalizzato -->
+        <div class="date-range-row">
+          <div class="date-input-group">
+            <label>From</label>
+            <input type="date" id="filter-date-from" class="input" />
+          </div>
+          <span class="date-separator">—</span>
+          <div class="date-input-group">
+            <label>To</label>
+            <input type="date" id="filter-date-to" class="input" />
+          </div>
+        </div>
+      </div>
+
+      <!-- Sezione Categorie: chips selezionabili con select all/none -->
+      <div class="filter-section">
+        <div class="filter-section-label">
+          <i data-lucide="tag"></i> Categories
+          <div class="filter-quick-actions">
+            <button class="quick-action-btn" id="cats-select-all">All</button>
+            <button class="quick-action-btn" id="cats-select-none">None</button>
+          </div>
+        </div>
+        <div class="filter-chips" id="filter-categories"></div>
+      </div>
+
+      <!-- Sezione Accounts: chips selezionabili con select all/none -->
+      <div class="filter-section">
+        <div class="filter-section-label">
+          <i data-lucide="wallet"></i> Accounts
+          <div class="filter-quick-actions">
+            <button class="quick-action-btn" id="accs-select-all">All</button>
+            <button class="quick-action-btn" id="accs-select-none">None</button>
+          </div>
+        </div>
+        <div class="filter-chips" id="filter-accounts"></div>
+      </div>
+    </div>
+
+    <!-- Filtered Summary -->
+    <div class="summary-cards" id="summary-filtered"></div>
+
+    <!-- Filtered Table -->
+    <div class="table-card">
+      <div class="table-card-header">
+        <h3>Filtered Transactions</h3>
+      </div>
+      <div class="table-scroll" id="filtered-table-scroll">
+        <table id="filtered-table">
+          <thead>
+            <tr>
+              <th>Amount</th>
+              <th>Category</th>
+              <th>Description</th>
+              <th>Date</th>
+              <th>Account</th>
+              <th>Type</th>
+            </tr>
+          </thead>
+          <tbody id="filtered-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Filtered Pivot -->
+    <div class="table-card" id="pivot-container-filtered">
+      <div class="table-card-header">
+        <h3>Monthly Overview</h3>
+      </div>
+      <div class="table-scroll no-vscroll">
+        <table class="pivot-table" id="pivot-table-filtered">
+          <thead id="pivot-head-filtered"></thead>
+          <tbody id="pivot-body-filtered"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Filtered Charts -->
+    <div class="chart-card">
+      <div class="chart-card-header">
+        <h3>Charts</h3>
+        <div class="chart-buttons">
+          <button class="chip active" data-chart-filtered="pie-categories">Categories Pie</button>
+          <button class="chip" data-chart-filtered="bar">Categories</button>
+          <button class="chip" data-chart-filtered="pie-income-expense">Income/Expense</button>
+          <button class="chip" data-chart-filtered="pie-accounts">Accounts</button>
+          <button class="chip" data-chart-filtered="time-series">Timeline</button>
+          <span class="chip-separator"></span>
+          <button class="chip chip-toggle" id="toggle-saldo-filtered">Excl. Saldo</button>
+        </div>
+      </div>
+      <div class="chart-wrapper">
+        <canvas id="chart-filtered"></canvas>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== INVESTMENTS ========== -->
+  <section class="page hidden" id="page-investments">
+    <!-- Summary Cards -->
+    <div class="summary-cards" id="summary-investments"></div>
+
+    <!-- Action Bar -->
+    <div class="action-bar">
+      <h2 class="section-title">Portfolio</h2>
+      <div class="action-bar-right">
+        <button class="btn btn-primary btn-with-icon" id="btn-open-add-inv">
+          <i data-lucide="plus"></i> Add Investment
+        </button>
+        <button class="btn btn-outline btn-with-icon" id="btn-open-manual-price">
+          <i data-lucide="pencil"></i> Update Price
+        </button>
+        <button class="btn btn-outline btn-with-icon" id="btn-refresh-all">
+          <i data-lucide="refresh-cw"></i> Refresh All
+        </button>
+      </div>
+    </div>
+
+    <!-- Portfolio Table -->
+    <div class="table-card">
+      <div class="table-scroll">
+        <table id="investments-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Ticker</th>
+              <th>Type</th>
+              <th>Qty</th>
+              <th>Avg Price</th>
+              <th>Current</th>
+              <th>Invested</th>
+              <th>Value</th>
+              <th>P&amp;L &euro;</th>
+              <th>P&amp;L %</th>
+              <th>Date</th>
+              <th class="th-actions">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="investments-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Portfolio Pie Chart -->
+    <div class="chart-card" id="inv-pie-container">
+      <div class="chart-wrapper">
+        <canvas id="chart-inv-pie"></canvas>
+      </div>
+    </div>
+
+    <!-- Investment Chart -->
+    <div class="chart-card hidden" id="inv-chart-container">
+      <div class="inv-chart-header">
+        <h3 id="inv-chart-title">Price History</h3>
+        <div class="range-selector">
+          <button class="range-btn active" data-range="1mo">1M</button>
+          <button class="range-btn" data-range="3mo">3M</button>
+          <button class="range-btn" data-range="6mo">6M</button>
+          <button class="range-btn" data-range="1y">1Y</button>
+          <button class="range-btn" data-range="5y">5Y</button>
+          <button class="range-btn" data-range="max">MAX</button>
+        </div>
+      </div>
+      <div class="inv-pnl-card" id="inv-pnl-card"></div>
+      <div class="chart-wrapper">
+        <canvas id="chart-investment"></canvas>
+      </div>
+      <p class="disclaimer">Data from Yahoo Finance. For personal use only.</p>
+    </div>
+  </section>
+
+  <!-- ========== SETTINGS ========== -->
+  <section class="page hidden" id="page-settings">
+    <h2 class="section-title" style="margin-bottom: 1.5rem;">Settings</h2>
+
+    <!-- Subscriptions Overview -->
+    <div class="settings-card">
+      <div class="settings-card-header">
+        <div class="settings-card-title">
+          <i data-lucide="repeat"></i>
+          <h3>Subscriptions</h3>
+        </div>
+        <button class="btn btn-primary btn-sm btn-with-icon" id="btn-open-add-sub">
+          <i data-lucide="plus"></i> Add
+        </button>
+      </div>
+      <div id="subscriptions-list" class="subscriptions-grid"></div>
+      <div class="settings-card-footer" id="sub-actions-footer">
+        <div class="inline-form">
+          <select id="remove-subscription" class="input input-sm"></select>
+          <button class="btn btn-danger btn-sm" id="btn-remove-subscription">Remove</button>
+          <button class="btn btn-warning btn-sm" id="btn-deactivate-subscription">Deactivate</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Categories -->
+    <div class="settings-card">
+      <div class="settings-card-header">
+        <div class="settings-card-title">
+          <i data-lucide="tag"></i>
+          <h3>Categories</h3>
+        </div>
+      </div>
+      <div class="tags-list" id="categories-tags"></div>
+      <div class="settings-card-footer">
+        <div class="inline-form">
+          <input type="text" id="new-category" placeholder="New category name" class="input input-sm" />
+          <button class="btn btn-primary btn-sm" id="btn-add-category">Add</button>
+        </div>
+        <div class="inline-form">
+          <select id="remove-category" class="input input-sm"></select>
+          <button class="btn btn-danger btn-sm" id="btn-remove-category">Remove</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Accounts -->
+    <div class="settings-card">
+      <div class="settings-card-header">
+        <div class="settings-card-title">
+          <i data-lucide="credit-card"></i>
+          <h3>Accounts</h3>
+        </div>
+      </div>
+      <div class="tags-list" id="accounts-tags"></div>
+      <div class="settings-card-footer">
+        <div class="inline-form">
+          <input type="text" id="new-account" placeholder="New account name" class="input input-sm" />
+          <button class="btn btn-primary btn-sm" id="btn-add-account">Add</button>
+        </div>
+        <div class="inline-form">
+          <select id="remove-account" class="input input-sm"></select>
+          <button class="btn btn-danger btn-sm" id="btn-remove-account">Remove</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Commission -->
+    <div class="settings-card">
+      <div class="settings-card-header">
+        <div class="settings-card-title">
+          <i data-lucide="percent"></i>
+          <h3>Transfer Commission</h3>
+        </div>
+      </div>
+      <p class="settings-desc">Current commission: <strong id="current-commission">0.00</strong> &euro;</p>
+      <div class="settings-card-footer">
+        <div class="inline-form">
+          <input type="number" id="commission-value" min="0" max="1000" step="0.50" value="0.00" class="input input-sm" />
+          <button class="btn btn-primary btn-sm" id="btn-save-commission">Save</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Import/Export -->
+    <div class="settings-card">
+      <div class="settings-card-header">
+        <div class="settings-card-title">
+          <i data-lucide="database"></i>
+          <h3>Data</h3>
+        </div>
+      </div>
+      <p class="settings-desc">Import or export your transactions as CSV.</p>
+      <div class="settings-card-footer">
+        <div class="inline-form">
+          <input type="file" id="csv-import" accept=".csv" class="input-file" />
+          <button class="btn btn-primary btn-sm" id="btn-import-csv">Import</button>
+          <button class="btn btn-outline btn-sm" id="btn-export-csv">Export</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<!-- ======================== FAB ======================== -->
+<button class="fab" id="fab-add" title="Add Transaction">
+  <i data-lucide="plus"></i>
+</button>
+
+<!-- ======================== MODALS ======================== -->
+
+<!-- Modal: Add Transaction -->
+<div class="modal-overlay hidden" id="modal-add">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Add Transaction</h3>
+      <button class="modal-close" data-close="modal-add"><i data-lucide="x"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Type</label>
+          <select id="add-type" class="input">
+            <option value="0">Expense</option>
+            <option value="1">Income</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Amount (&euro;)</label>
+          <input type="number" id="add-amount" min="0" step="0.01" value="0.00" class="input" />
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Category</label>
+          <select id="add-category" class="input"></select>
+        </div>
+        <div class="form-group">
+          <label>Account</label>
+          <select id="add-account" class="input"></select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Description</label>
+        <input type="text" id="add-description" placeholder="e.g. Weekly groceries" class="input" />
+      </div>
+      <div class="form-group">
+        <label>Date</label>
+        <input type="date" id="add-date" class="input" />
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" data-close="modal-add">Cancel</button>
+      <button class="btn btn-primary" id="btn-add-transaction">Add Transaction</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Edit Transaction -->
+<div class="modal-overlay hidden" id="modal-edit">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Edit Transaction</h3>
+      <button class="modal-close" data-close="modal-edit"><i data-lucide="x"></i></button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="edit-id" />
+      <div class="form-row">
+        <div class="form-group">
+          <label>Type</label>
+          <select id="edit-type" class="input">
+            <option value="0">Expense</option>
+            <option value="1">Income</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Amount (&euro;)</label>
+          <input type="number" id="edit-amount" min="0" step="0.01" value="0.00" class="input" />
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Category</label>
+          <select id="edit-category" class="input"></select>
+        </div>
+        <div class="form-group">
+          <label>Account</label>
+          <select id="edit-account" class="input"></select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Description</label>
+        <input type="text" id="edit-description" class="input" />
+      </div>
+      <div class="form-group">
+        <label>Date</label>
+        <input type="date" id="edit-date" class="input" />
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" data-close="modal-edit">Cancel</button>
+      <button class="btn btn-primary" id="btn-edit">Save Changes</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Money Transfer -->
+<div class="modal-overlay hidden" id="modal-transfer">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Money Transfer</h3>
+      <button class="modal-close" data-close="modal-transfer"><i data-lucide="x"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <div class="form-group">
+          <label>From</label>
+          <select id="transfer-from" class="input"></select>
+        </div>
+        <div class="form-group transfer-arrow-group">
+          <i data-lucide="arrow-right" class="transfer-arrow"></i>
+        </div>
+        <div class="form-group">
+          <label>To</label>
+          <select id="transfer-to" class="input"></select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Amount (&euro;)</label>
+          <input type="number" id="transfer-amount" min="0" step="0.01" value="0.00" class="input" />
+        </div>
+        <div class="form-group">
+          <label>Date</label>
+          <input type="date" id="transfer-date" class="input" />
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" data-close="modal-transfer">Cancel</button>
+      <button class="btn btn-primary" id="btn-transfer">Transfer</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Add Investment -->
+<div class="modal-overlay hidden" id="modal-add-inv">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Add Investment</h3>
+      <button class="modal-close" data-close="modal-add-inv"><i data-lucide="x"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Name</label>
+          <input type="text" id="inv-name" placeholder="e.g. Vanguard S&P 500" class="input" />
+        </div>
+        <div class="form-group">
+          <label>Ticker (Yahoo Finance)</label>
+          <input type="text" id="inv-ticker" placeholder="e.g. VUSA.MI" class="input" />
+          <small class="input-hint">Borsa Italiana: add .MI (e.g. ENI.MI)</small>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>ISIN (optional)</label>
+          <input type="text" id="inv-isin" placeholder="e.g. IE00B3XXRP09" class="input" />
+        </div>
+        <div class="form-group">
+          <label>Type</label>
+          <select id="inv-type" class="input">
+            <option value="ETF">ETF</option>
+            <option value="BTP">BTP</option>
+            <option value="Stock">Stock</option>
+            <option value="Fund">Fund</option>
+            <option value="Bond">Bond</option>
+            <option value="Crypto">Crypto</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Purchase Price (&euro;)</label>
+          <input type="number" id="inv-price" min="0" step="0.01" value="0.00" class="input" />
+        </div>
+        <div class="form-group">
+          <label>Quantity</label>
+          <input type="number" id="inv-quantity" min="0" step="0.001" value="1" class="input" />
+        </div>
+        <div class="form-group">
+          <label>Purchase Date</label>
+          <input type="date" id="inv-date" class="input" />
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" data-close="modal-add-inv">Cancel</button>
+      <button class="btn btn-primary" id="btn-add-investment">Add Investment</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Update Price Manually -->
+<div class="modal-overlay hidden" id="modal-manual-price">
+  <div class="modal modal-sm">
+    <div class="modal-header">
+      <h3>Update Price</h3>
+      <button class="modal-close" data-close="modal-manual-price"><i data-lucide="x"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>Investment</label>
+        <select id="inv-manual-select" class="input"></select>
+      </div>
+      <div class="form-group">
+        <label>Current Price (&euro;)</label>
+        <input type="number" id="inv-manual-price" min="0" step="0.01" value="0.00" class="input" />
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" data-close="modal-manual-price">Cancel</button>
+      <button class="btn btn-primary" id="btn-manual-price">Update</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Add Subscription -->
+<div class="modal-overlay hidden" id="modal-add-sub">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Add Subscription</h3>
+      <button class="modal-close" data-close="modal-add-sub"><i data-lucide="x"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Name</label>
+          <input type="text" id="sub-name" placeholder="e.g. Netflix" class="input" />
+        </div>
+        <div class="form-group">
+          <label>Amount (&euro;/month)</label>
+          <input type="number" id="sub-amount" min="0" step="0.50" value="0.00" class="input" />
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Start Date</label>
+          <input type="date" id="sub-start" class="input" />
+        </div>
+        <div class="form-group">
+          <label>Duration (months)</label>
+          <input type="number" id="sub-duration" min="1" max="36" value="1" class="input" />
+        </div>
+        <div class="form-group">
+          <label>Account</label>
+          <select id="sub-account" class="input"></select>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" data-close="modal-add-sub">Cancel</button>
+      <button class="btn btn-primary" id="btn-add-subscription">Add Subscription</button>
+    </div>
+  </div>
+</div>
+
+<!-- Confirm Delete Dialog -->
+<div class="modal-overlay hidden" id="modal-confirm-delete">
+  <div class="modal modal-sm">
+    <div class="modal-header">
+      <h3>Delete Transaction</h3>
+      <button class="modal-close" data-close="modal-confirm-delete"><i data-lucide="x"></i></button>
+    </div>
+    <div class="modal-body">
+      <p class="confirm-text">Are you sure you want to delete this transaction?</p>
+      <input type="hidden" id="delete-id" />
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" data-close="modal-confirm-delete">Cancel</button>
+      <button class="btn btn-danger" id="btn-delete">Delete</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast container -->
+<div class="toast-container" id="toast-container"></div>
+
+<!-- ======================== JAVASCRIPT ======================== -->
+<script src="wallet.js?v=4"></script>
+<script src="app.js?v=4"></script>
+
+</body>
+</html>

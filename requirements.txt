@@ -1,0 +1,9 @@
+pandas
+tk
+python-dotenv
+tabulate
+matplotlib
+seaborn
+cycler
+streamlit
+python-telegram-bot
