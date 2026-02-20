@@ -1792,6 +1792,66 @@ input[type="file"]::file-selector-button:hover {
   border-color: var(--color-border);
 }
 
+/* ======================== FILTER TOGGLE BAR ======================== */
+/* Barra compatta sempre visibile in cima alla Dashboard.
+   Contiene il pulsante Filters (toggle) e il pulsante Reset (solo quando attivi). */
+.filter-toggle-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+/* Pallino colorato dentro il bottone Filters, visibile solo quando i filtri sono attivi */
+.filter-active-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  margin-left: 0.3rem;
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+
+/* ======================== SETTINGS GEAR ICON IN NAV ======================== */
+/* Il pulsante Settings è ora un'icona nella nav, senza testo */
+.nav-btn-settings {
+  /* Padding più quadrato per sembrare un icon button */
+  padding: 0.5rem 0.6rem;
+}
+
+/* Nasconde il testo se presente (il pulsante ha solo <i>) */
+.nav-btn-settings span {
+  display: none;
+}
+
+/* ======================== ANALYTICS SECTION (inline in Dashboard) ======================== */
+/* Wrapper della sezione Filter & Analyze, collassabile */
+.analytics-section {
+  margin-bottom: 1.5rem;
+}
+
+/* Header della sezione: titolo a sinistra, toggle a destra */
+.analytics-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Titolo piccolo nella filter bar quando è inline nella dashboard */
+.filter-bar-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
 /* Su mobile il toggle desktop nella nav è nascosto (la nav è hidden) */
 @media (max-width: 768px) {
   #btn-theme-toggle-desktop {

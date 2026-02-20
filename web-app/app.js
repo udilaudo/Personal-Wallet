@@ -156,10 +156,9 @@ function toggleTheme() {
   }
   updateThemeIcon();
 
-  // Ri-renderizza i grafici perché Chart.js usa colori hardcoded al momento della creazione
+  // Ri-renderizza: renderMainPage() include già il grafico con i dati filtrati correnti
   try {
     renderMainPage();
-    renderFilteredPage();
     renderInvestmentsPage();
   } catch (e) {
     // Ignora errori se le pagine non sono ancora state inizializzate
@@ -212,8 +211,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("filter-date-to").value = today;
 
   populateSelects();
-  renderMainPage();
-  renderFilteredPage();
+  renderMainPage();        // renderizza con filtri vuoti = totale
   renderSettingsPage();
   renderInvestmentsPage();
 
@@ -228,14 +226,13 @@ document.addEventListener("DOMContentLoaded", async () => {
   bindMobileNav();
   bindBottomNav(); // Barra di navigazione inferiore per mobile
   bindFAB();
+  bindFilterToggle(); // Toggle collassa/espandi pannello filtri nella Dashboard
 
   // Bind dei pulsanti toggle tema (mobile + desktop)
   document.getElementById("btn-theme-toggle").addEventListener("click", toggleTheme);
   document.getElementById("btn-theme-toggle-desktop").addEventListener("click", toggleTheme);
 
-  // Render default charts
-  createChart("chart-main", "pie-categories", wallet.transactions, excludeSaldoMain);
-  createChart("chart-filtered", "pie-categories", wallet.transactions, excludeSaldoFiltered);
+  // Il grafico principale è già incluso in renderMainPage(), non serve crearlo separatamente.
 });
 
 // ======================== NAVIGATION ========================
@@ -270,7 +267,8 @@ function navigateTo(page) {
   // Close mobile nav
   document.getElementById("mobile-nav-overlay").classList.add("hidden");
 
-  // Show/hide FAB (only on main)
+  // Mostra il FAB solo sulla Dashboard (pagina principale delle transazioni)
+  // Su tutte le altre pagine è nascosto per non creare confusione
   const fab = document.getElementById("fab-add");
   if (page === "main") {
     fab.classList.remove("hidden");
@@ -319,6 +317,81 @@ function bindFAB() {
   document.getElementById("fab-add").addEventListener("click", () => {
     openModal("modal-add");
   });
+}
+
+// ======================== FILTER TOGGLE & HELPERS ========================
+
+/**
+ * bindFilterToggle — collega il pulsante "Filters" nella Dashboard
+ * al pannello di controllo filtri (collassabile).
+ */
+function bindFilterToggle() {
+  const toggleBtn = document.getElementById("btn-toggle-filters");
+  const controls = document.getElementById("filter-controls");
+  if (!toggleBtn || !controls) return;
+
+  toggleBtn.addEventListener("click", () => {
+    const isOpen = !controls.classList.contains("hidden");
+    controls.classList.toggle("hidden");
+
+    // Aggiorna l'icona del bottone in base allo stato aperto/chiuso
+    const icon = toggleBtn.querySelector("i");
+    icon.setAttribute("data-lucide", isOpen ? "sliders-horizontal" : "chevron-up");
+    lucide.createIcons();
+  });
+}
+
+/**
+ * resetFilters — azzera tutti i filtri attivi e torna alla vista totale.
+ * Deseleziona categorie e account, pulisce le date, re-renderizza.
+ */
+function resetFilters() {
+  // Deseleziona tutte le categorie
+  document.querySelectorAll("#filter-categories .filter-chip").forEach(chip => {
+    const cb = chip.querySelector("input");
+    if (cb) cb.checked = false;
+    chip.classList.remove("selected");
+  });
+
+  // Deseleziona tutti gli account
+  document.querySelectorAll("#filter-accounts .filter-chip").forEach(chip => {
+    const cb = chip.querySelector("input");
+    if (cb) cb.checked = false;
+    chip.classList.remove("selected");
+  });
+
+  // Pulisci i campi data e rimuovi il preset attivo
+  document.getElementById("filter-date-from").value = "";
+  document.getElementById("filter-date-to").value = "";
+  document.querySelectorAll(".preset-btn").forEach(b => b.classList.remove("active"));
+
+  // Re-renderizza la dashboard: nessun filtro = tutte le transazioni
+  renderMainPage();
+  showToast("Filters cleared — showing all data");
+}
+
+/**
+ * hasActiveFilters — restituisce true se almeno un filtro è attivo.
+ * Usato per mostrare/nascondere il badge e il tasto Reset.
+ */
+function hasActiveFilters() {
+  const hasCats = document.querySelectorAll("#filter-categories input:checked").length > 0;
+  const hasAccs = document.querySelectorAll("#filter-accounts input:checked").length > 0;
+  const hasDateFrom = !!document.getElementById("filter-date-from").value;
+  const hasDateTo = !!document.getElementById("filter-date-to").value;
+  return hasCats || hasAccs || hasDateFrom || hasDateTo;
+}
+
+/**
+ * updateFilterBadge — aggiorna visibilità del pallino "filtri attivi"
+ * e del pulsante Reset in base allo stato corrente dei filtri.
+ */
+function updateFilterBadge() {
+  const active = hasActiveFilters();
+  const dot = document.getElementById("filter-active-dot");
+  const resetBtn = document.getElementById("btn-reset-filters");
+  if (dot) dot.classList.toggle("hidden", !active);
+  if (resetBtn) resetBtn.classList.toggle("hidden", !active);
 }
 
 // ======================== MODAL SYSTEM ========================
@@ -450,17 +523,26 @@ function populateSelects() {
 
 // ======================== RENDER MAIN PAGE ========================
 
+/**
+ * renderMainPage — unica funzione di rendering per la Dashboard.
+ * Usa getFilteredData() per ottenere i dati: se nessun filtro è attivo
+ * restituisce tutte le transazioni (= totale), altrimenti le filtra.
+ * In questo modo "nessun filtro" è semplicemente un filtro vuoto.
+ */
 function renderMainPage() {
   wallet.sortAndReindex();
 
-  // --- Transaction Table ---
+  // Ottieni i dati in base ai filtri attivi (filtri vuoti = tutte le transazioni)
+  const data = getFilteredData();
+
+  // --- Transaction Table (dati filtrati) ---
   const tbody = document.getElementById("transactions-body");
   tbody.innerHTML = "";
 
-  if (wallet.transactions.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="7" class="empty-msg">No transactions yet. Click "Add Transaction" to get started.</td></tr>';
+  if (data.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-msg">No transactions for the current filters. Click "Reset filters" to see all data.</td></tr>';
   } else {
-    for (const t of wallet.transactions) {
+    for (const t of data) {
       const tr = document.createElement("tr");
 
       if (t.Type === 1 || t.Type === 3) {
@@ -527,8 +609,8 @@ function renderMainPage() {
     });
   });
 
-  // --- Summary Cards ---
-  const summary = Wallet.computeSummary(wallet.transactions);
+  // --- Summary Cards (calcolate sui dati filtrati) ---
+  const summary = Wallet.computeSummary(data);
   const summaryDiv = document.getElementById("summary-main");
   summaryDiv.innerHTML = `
     <div class="card card-total">
@@ -569,8 +651,15 @@ function renderMainPage() {
   // --- Account Pie Chart ---
   renderAccountsPieChart();
 
-  // --- Pivot Table ---
-  renderPivotTable(wallet.transactions, "pivot-head-main", "pivot-body-main");
+  // --- Pivot Table (dati filtrati) ---
+  renderPivotTable(data, "pivot-head-main", "pivot-body-main");
+
+  // --- Chart principale (ri-creato con i dati filtrati) ---
+  // Il grafico si aggiorna ogni volta che cambiano i dati o i filtri
+  createChart("chart-main", currentChartTypeMain, data, excludeSaldoMain);
+
+  // Aggiorna badge e tasto reset in base allo stato dei filtri
+  updateFilterBadge();
 
   // Re-init icons
   lucide.createIcons();
@@ -668,91 +757,24 @@ function bindMainActions() {
 
 // ======================== FILTERED PAGE ========================
 
+/**
+ * renderFilteredPage — mantenuta per retrocompatibilità (chiamata da importCSV ecc.)
+ * Ora delega a renderMainPage() che usa già getFilteredData() internamente.
+ */
 function renderFilteredPage() {
-  const selectedCats = [];
-  document.querySelectorAll("#filter-categories input:checked").forEach(cb => {
-    selectedCats.push(cb.value);
-  });
-
-  const selectedAccs = [];
-  document.querySelectorAll("#filter-accounts input:checked").forEach(cb => {
-    selectedAccs.push(cb.value);
-  });
-
-  const dateFrom = document.getElementById("filter-date-from").value || null;
-  const dateTo = document.getElementById("filter-date-to").value || null;
-
-  const filtered = wallet.filter({
-    categories: selectedCats,
-    accounts: selectedAccs,
-    dateFrom,
-    dateTo
-  });
-
-  // --- Table ---
-  const tbody = document.getElementById("filtered-body");
-  tbody.innerHTML = "";
-
-  if (filtered.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="6" class="empty-msg">No data for selected filters.</td></tr>';
-  } else {
-    for (const t of filtered) {
-      const tr = document.createElement("tr");
-      if (t.Type === 1 || t.Type === 3) tr.className = "row-income";
-      else if (t.Type === 4) tr.className = "row-transfer";
-
-      const dateStr = `${String(t.D).padStart(2, "0")}/${String(t.M).padStart(2, "0")}/${t.Y}`;
-      const typeLabels = { 0: "Expense", 1: "Income", 2: "Balance Out", 3: "Balance In", 4: "Transfer" };
-
-      tr.innerHTML = `
-        <td class="amount ${t.Amount >= 0 ? 'positive' : 'negative'}">${t.Amount.toFixed(2)} &euro;</td>
-        <td>${t.Category}</td>
-        <td>${t.Description}</td>
-        <td>${dateStr}</td>
-        <td><span class="badge">${t.Conto || "—"}</span></td>
-        <td><span class="type-badge type-${t.Type}">${typeLabels[t.Type] || t.Type}</span></td>
-      `;
-      tbody.appendChild(tr);
-    }
-  }
-
-  // --- Summary ---
-  const summary = Wallet.computeSummary(filtered);
-  const summaryDiv = document.getElementById("summary-filtered");
-  summaryDiv.innerHTML = `
-    <div class="card card-total">
-      <div class="card-icon"><i data-lucide="wallet"></i></div>
-      <span class="card-label">Total Balance</span>
-      <span class="card-value">${summary.saldo.toFixed(2)} &euro;</span>
-    </div>
-    <div class="card card-income">
-      <div class="card-icon"><i data-lucide="trending-up"></i></div>
-      <span class="card-label">Income</span>
-      <span class="card-value">${summary.totalIncome.toFixed(2)} &euro;</span>
-    </div>
-    <div class="card card-expense">
-      <div class="card-icon"><i data-lucide="trending-down"></i></div>
-      <span class="card-label">Expenses</span>
-      <span class="card-value">${summary.totalOutcome.toFixed(2)} &euro;</span>
-    </div>
-    <div class="card card-count">
-      <div class="card-icon"><i data-lucide="hash"></i></div>
-      <span class="card-label">Transactions</span>
-      <span class="card-value">${summary.count}</span>
-    </div>
-  `;
-
-  // --- Pivot ---
-  renderPivotTable(filtered, "pivot-head-filtered", "pivot-body-filtered");
-
-  lucide.createIcons();
+  renderMainPage();
 }
 
 function bindFilterActions() {
-  // Pulsante Apply: applica tutti i filtri e aggiorna la pagina
+  // Pulsante Apply: applica i filtri e re-renderizza la dashboard unificata
   document.getElementById("btn-apply-filters").addEventListener("click", () => {
-    renderFilteredPage();
+    renderMainPage();
     showToast("Filters applied!");
+  });
+
+  // Pulsante Reset: azzera tutti i filtri e torna al totale
+  document.getElementById("btn-reset-filters").addEventListener("click", () => {
+    resetFilters();
   });
 
   // --- Date Presets: cliccando un preset aggiorna le date nel form ---
@@ -1288,42 +1310,23 @@ function renderAccountsPieChart() {
 }
 
 function bindChartButtons() {
-  // Main page chart chips
+  // Chip per la selezione del tipo di grafico — usa sempre i dati filtrati correnti
   document.querySelectorAll("[data-chart]").forEach(btn => {
     btn.addEventListener("click", () => {
-      // Update active chip (only chart-type chips, not toggles)
+      // Aggiorna il chip attivo (solo i chip tipo-grafico, non i toggle)
       btn.closest(".chart-buttons").querySelectorAll(".chip:not(.chip-toggle)").forEach(c => c.classList.remove("active"));
       btn.classList.add("active");
       currentChartTypeMain = btn.dataset.chart;
-      createChart("chart-main", currentChartTypeMain, wallet.transactions, excludeSaldoMain);
+      // Usa getFilteredData(): filtri vuoti = tutte le transazioni
+      createChart("chart-main", currentChartTypeMain, getFilteredData(), excludeSaldoMain);
     });
   });
 
-  // Filtered page chart chips
-  document.querySelectorAll("[data-chart-filtered]").forEach(btn => {
-    btn.addEventListener("click", () => {
-      btn.closest(".chart-buttons").querySelectorAll(".chip:not(.chip-toggle)").forEach(c => c.classList.remove("active"));
-      btn.classList.add("active");
-      currentChartTypeFiltered = btn.dataset.chartFiltered;
-
-      const filtered = getFilteredData();
-      createChart("chart-filtered", currentChartTypeFiltered, filtered, excludeSaldoFiltered);
-    });
-  });
-
-  // Saldo toggle — Main
+  // Toggle Excl. Saldo — aggiorna il grafico con i dati filtrati correnti
   document.getElementById("toggle-saldo-main").addEventListener("click", () => {
     excludeSaldoMain = !excludeSaldoMain;
     document.getElementById("toggle-saldo-main").classList.toggle("active", excludeSaldoMain);
-    createChart("chart-main", currentChartTypeMain, wallet.transactions, excludeSaldoMain);
-  });
-
-  // Saldo toggle — Filtered
-  document.getElementById("toggle-saldo-filtered").addEventListener("click", () => {
-    excludeSaldoFiltered = !excludeSaldoFiltered;
-    document.getElementById("toggle-saldo-filtered").classList.toggle("active", excludeSaldoFiltered);
-    const filtered = getFilteredData();
-    createChart("chart-filtered", currentChartTypeFiltered, filtered, excludeSaldoFiltered);
+    createChart("chart-main", currentChartTypeMain, getFilteredData(), excludeSaldoMain);
   });
 }
 
