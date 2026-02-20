@@ -381,9 +381,16 @@ class Wallet {
       const conto = details.conto;
       const startDate = new Date(details.start_date);
 
-      // Controlla se esiste già un pagamento per questo mese
+      // Controlla se esiste già un pagamento per questo mese.
+      // NOTA: il controllo include anche la variante "+ Splitted" perché nel caso
+      // di split PayPal la descrizione salvata è "Subscription X + Splitted", non
+      // "Subscription X". Senza questo controllo, la transazione verrebbe aggiunta
+      // ad ogni ricarica della pagina se il pagamento era stato splittato.
       const alreadyPaid = this.transactions.some(
-        t => t.M === m && t.Y === y && t.Description === `Subscription ${name}`
+        t => t.M === m && t.Y === y && (
+          t.Description === `Subscription ${name}` ||
+          t.Description === `Subscription ${name} + Splitted`
+        )
       );
 
       // Se non è stato ancora pagato e siamo oltre il giorno di inizio
