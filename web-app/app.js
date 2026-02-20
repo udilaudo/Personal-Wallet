@@ -55,7 +55,7 @@ let currentChartDailyBalance = null;
 
 let currentChartTypeMain = "pie-categories";
 let currentChartTypeFiltered = "pie-categories";
-let excludeSaldoMain = false;
+let excludeSaldoMain = true; // attivo di default: esclude la categoria "Saldo" dai grafici
 let excludeSaldoFiltered = false;
 
 let investments = JSON.parse(localStorage.getItem("wallet_investments") || "[]");
@@ -207,10 +207,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("inv-date").value = today;
 
   // Default: ultimi 2 mesi (coerente con il preset "Last 2 Months" attivo di default)
-  const twoMonthsAgo = new Date();
-  twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
-  document.getElementById("filter-date-from").value = twoMonthsAgo.toISOString().split("T")[0];
-  document.getElementById("filter-date-to").value = today;
+  // const twoMonthsAgo = new Date();
+  // twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
+  // document.getElementById("filter-date-from").value = twoMonthsAgo.toISOString().split("T")[0];
+  // document.getElementById("filter-date-to").value = today;
 
   populateSelects();
   renderMainPage();        // renderizza con filtri vuoti = totale
@@ -223,6 +223,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   bindFilterActions();
   bindSettingsActions();
   bindChartButtons();
+  // Riflette lo stato iniziale di excludeSaldoMain sul bottone toggle
+  document.getElementById("toggle-saldo-main").classList.toggle("active", excludeSaldoMain);
   bindImportExport();
   bindInvestmentActions();
   bindMobileNav();
@@ -488,7 +490,11 @@ function populateSelects() {
       chip.addEventListener("click", () => {
         const cb = chip.querySelector("input");
         // Il click sul label già toglie la checkbox, sincronizziamo la classe
-        setTimeout(() => chip.classList.toggle("selected", cb.checked), 0);
+        // e ri-renderizziamo subito senza bisogno di premere Apply
+        setTimeout(() => {
+          chip.classList.toggle("selected", cb.checked);
+          renderMainPage();
+        }, 0);
       });
       filterCats.appendChild(chip);
     });
@@ -504,7 +510,11 @@ function populateSelects() {
       chip.innerHTML = `<input type="checkbox" value="${acc}" /> ${acc}`;
       chip.addEventListener("click", () => {
         const cb = chip.querySelector("input");
-        setTimeout(() => chip.classList.toggle("selected", cb.checked), 0);
+        // Auto-apply anche per gli account
+        setTimeout(() => {
+          chip.classList.toggle("selected", cb.checked);
+          renderMainPage();
+        }, 0);
       });
       filterAccs.appendChild(chip);
     });
@@ -772,12 +782,6 @@ function renderFilteredPage() {
 }
 
 function bindFilterActions() {
-  // Pulsante Apply: applica i filtri e re-renderizza la dashboard unificata
-  document.getElementById("btn-apply-filters").addEventListener("click", () => {
-    renderMainPage();
-    showToast("Filters applied!");
-  });
-
   // Pulsante Reset: azzera tutti i filtri e torna al totale
   document.getElementById("btn-reset-filters").addEventListener("click", () => {
     resetFilters();
@@ -796,14 +800,14 @@ function bindFilterActions() {
         // Dal primo giorno del mese corrente
         fromDate = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0];
       } else if (preset === "last-2") {
-        const d = new Date(); d.setMonth(d.getMonth() - 2);
-        fromDate = d.toISOString().split("T")[0];
+        // 1° del mese scorso (es. 20 Feb → 1 Gen)
+        fromDate = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().split("T")[0];
       } else if (preset === "last-3") {
-        const d = new Date(); d.setMonth(d.getMonth() - 3);
-        fromDate = d.toISOString().split("T")[0];
+        // 1° di 2 mesi fa (es. 20 Feb → 1 Dic)
+        fromDate = new Date(now.getFullYear(), now.getMonth() - 2, 1).toISOString().split("T")[0];
       } else if (preset === "last-6") {
-        const d = new Date(); d.setMonth(d.getMonth() - 6);
-        fromDate = d.toISOString().split("T")[0];
+        // 1° di 5 mesi fa (es. 20 Feb → 1 Set)
+        fromDate = new Date(now.getFullYear(), now.getMonth() - 5, 1).toISOString().split("T")[0];
       } else if (preset === "this-year") {
         // Dal primo gennaio dell'anno corrente
         fromDate = new Date(now.getFullYear(), 0, 1).toISOString().split("T")[0];
@@ -819,15 +823,20 @@ function bindFilterActions() {
       // Evidenzia il preset attivo
       document.querySelectorAll(".preset-btn").forEach(b => b.classList.remove("active"));
       btn.classList.add("active");
+
+      // Auto-apply: aggiorna i dati subito senza premere Apply
+      renderMainPage();
     });
   });
 
-  // Quando l'utente modifica manualmente una data, deseleziona tutti i preset
+  // Quando l'utente modifica manualmente una data, deseleziona i preset e auto-applica
   document.getElementById("filter-date-from").addEventListener("input", () => {
     document.querySelectorAll(".preset-btn").forEach(b => b.classList.remove("active"));
+    renderMainPage();
   });
   document.getElementById("filter-date-to").addEventListener("input", () => {
     document.querySelectorAll(".preset-btn").forEach(b => b.classList.remove("active"));
+    renderMainPage();
   });
 
   // --- Select All / None per le categorie ---
@@ -836,12 +845,14 @@ function bindFilterActions() {
       chip.querySelector("input").checked = true;
       chip.classList.add("selected");
     });
+    renderMainPage();
   });
   document.getElementById("cats-select-none").addEventListener("click", () => {
     document.querySelectorAll("#filter-categories .filter-chip").forEach(chip => {
       chip.querySelector("input").checked = false;
       chip.classList.remove("selected");
     });
+    renderMainPage();
   });
 
   // --- Select All / None per gli account ---
@@ -850,12 +861,14 @@ function bindFilterActions() {
       chip.querySelector("input").checked = true;
       chip.classList.add("selected");
     });
+    renderMainPage();
   });
   document.getElementById("accs-select-none").addEventListener("click", () => {
     document.querySelectorAll("#filter-accounts .filter-chip").forEach(chip => {
       chip.querySelector("input").checked = false;
       chip.classList.remove("selected");
     });
+    renderMainPage();
   });
 }
 
