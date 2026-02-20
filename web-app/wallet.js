@@ -747,6 +747,51 @@ class Wallet {
   }
 
   /**
+   * Calcola il saldo cumulativo giornaliero nel tempo.
+   *
+   * Algoritmo:
+   *   1. Escludi i giroconti (Type 4): ogni giroconto è una coppia +/- che si annulla
+   *      quindi non influisce sul saldo totale, ma per chiarezza li escludiamo esplicitamente.
+   *   2. Raggruppa gli importi per giorno (somma algebrica di tutte le transazioni in quel giorno).
+   *   3. Ordina le date cronologicamente.
+   *   4. Calcola il saldo corrente (running sum) accumulando giorno per giorno.
+   *
+   * @param {Object[]} data - Array di transazioni (tipicamente wallet.transactions completo)
+   * @returns {Object} { labels: string[], balances: number[] }
+   *   - labels: date ISO "YYYY-MM-DD" ordinate cronologicamente
+   *   - balances: saldo cumulativo in euro a fine di ogni giorno
+   */
+  static chartDailyBalance(data) {
+    // Escludi giroconti (Type 4): coppia +/- neutrale al saldo complessivo
+    const relevant = data.filter(t => t.Type !== 4);
+
+    // Raggruppa la somma giornaliera in una mappa { "YYYY-MM-DD": importo_netto }
+    const dailyMap = {};
+    for (const t of relevant) {
+      // Costruisce la chiave data con zero-padding per ordinamento corretto
+      const key = `${t.Y}-${String(t.M).padStart(2, "0")}-${String(t.D).padStart(2, "0")}`;
+      if (!dailyMap[key]) dailyMap[key] = 0;
+      dailyMap[key] += t.Amount; // somma algebrica (positivo = entrata, negativo = uscita)
+    }
+
+    // Ordina le chiavi cronologicamente (l'ordinamento lessicografico di ISO date è corretto)
+    const sortedDates = Object.keys(dailyMap).sort();
+
+    // Se non ci sono transazioni, ritorna vuoto
+    if (sortedDates.length === 0) return { labels: [], balances: [] };
+
+    // Calcola il saldo cumulativo giorno per giorno (running sum)
+    let running = 0;
+    const balances = sortedDates.map(date => {
+      running += dailyMap[date];
+      // Arrotonda a 2 decimali per evitare imprecisioni floating-point
+      return Math.round(running * 100) / 100;
+    });
+
+    return { labels: sortedDates, balances };
+  }
+
+  /**
    * Calcola i totali per un sottoinsieme di transazioni (usato per i dati filtrati).
    * @param {Object[]} data - Array di transazioni
    * @returns {Object} { saldo, totalIncome, totalOutcome, count }

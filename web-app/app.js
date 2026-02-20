@@ -50,6 +50,8 @@ let currentChartFiltered = null;
 let currentChartInvestment = null;
 let currentChartInvPie = null;
 let currentChartAccountsPie = null;
+// Riferimento al grafico del saldo giornaliero cumulativo
+let currentChartDailyBalance = null;
 
 let currentChartTypeMain = "pie-categories";
 let currentChartTypeFiltered = "pie-categories";
@@ -657,6 +659,10 @@ function renderMainPage() {
   // --- Chart principale (ri-creato con i dati filtrati) ---
   // Il grafico si aggiorna ogni volta che cambiano i dati o i filtri
   createChart("chart-main", currentChartTypeMain, data, excludeSaldoMain);
+
+  // --- Daily Balance Chart (usa tutte le transazioni, non filtrate) ---
+  // Mostra il saldo cumulativo giornaliero nel tempo sull'intera storia del wallet
+  renderDailyBalanceChart();
 
   // Aggiorna badge e tasto reset in base allo stato dei filtri
   updateFilterBadge();
@@ -1302,6 +1308,111 @@ function renderAccountsPieChart() {
               const pct = total > 0 ? ((val / total) * 100).toFixed(1) : 0;
               return ` ${ctx.label}: ${val.toFixed(2)} \u20AC (${pct}%)`;
             }
+          }
+        }
+      }
+    }
+  });
+}
+
+/**
+ * renderDailyBalanceChart — crea il grafico a linee del saldo giornaliero cumulativo.
+ *
+ * Logica:
+ *   - Usa TUTTE le transazioni del wallet (non quelle filtrate) per avere il vero
+ *     saldo storico in ogni momento. I filtri attivi non influenzano questo grafico.
+ *   - Chiama Wallet.chartDailyBalance() che restituisce { labels, balances }.
+ *   - labels: date ISO "YYYY-MM-DD" ordinate cronologicamente
+ *   - balances: saldo cumulativo in euro a fine di ogni giorno
+ *   - Il colore della linea è verde se il saldo finale è positivo, rosso altrimenti.
+ *   - Fill verso y=0: evidenzia visivamente i periodi in positivo o negativo.
+ */
+function renderDailyBalanceChart() {
+  // Distruggi il chart precedente per evitare memory leak e doppi canvas
+  if (currentChartDailyBalance) {
+    currentChartDailyBalance.destroy();
+    currentChartDailyBalance = null;
+  }
+
+  const canvas = document.getElementById("chart-daily-balance");
+  if (!canvas) return;
+
+  // Usa TUTTE le transazioni (non filtrate) per il saldo storico reale
+  const { labels, balances } = Wallet.chartDailyBalance(wallet.transactions);
+
+  // Se non ci sono dati, non disegnare nulla
+  if (labels.length === 0) return;
+
+  const ctx = canvas.getContext("2d");
+  const theme = getChartThemeColors();
+
+  // Colore adattivo: verde se il saldo finale è positivo, rosso altrimenti
+  const lastBalance = balances[balances.length - 1];
+  const isPositive = lastBalance >= 0;
+  const lineColor = isPositive ? "#10b981" : "#ef4444";
+  const fillColor = isPositive ? "rgba(16, 185, 129, 0.12)" : "rgba(239, 68, 68, 0.12)";
+
+  // Formatta le label da "YYYY-MM-DD" a "DD MMM YY" per la leggibilità sull'asse X
+  const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const formattedLabels = labels.map(iso => {
+    const [y, m, d] = iso.split("-");
+    return `${d} ${monthNames[parseInt(m) - 1]} ${y.slice(2)}`;
+  });
+
+  // Aggiorna i default di Chart.js per rispettare il tema (dark/light)
+  Chart.defaults.color = theme.textColor;
+  Chart.defaults.borderColor = theme.gridColor;
+
+  currentChartDailyBalance = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels: formattedLabels,
+      datasets: [{
+        label: "Balance",
+        data: balances,
+        borderColor: lineColor,
+        backgroundColor: fillColor,
+        // fill: "origin" riempie l'area tra la linea e y=0
+        fill: "origin",
+        tension: 0.2,          // leggera curva per rendere il grafico più fluido
+        pointRadius: 2,        // punti piccoli ma visibili
+        pointHitRadius: 10,    // area di hover più ampia per la UX
+        borderWidth: 2
+      }]
+    },
+    options: {
+      responsive: true,
+      interaction: { intersect: false, mode: "index" },
+      plugins: {
+        title: {
+          display: true,
+          text: "Daily Balance Over Time",
+          font: { size: 16, weight: "bold" }
+        },
+        // La legenda è ridondante con un solo dataset
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            // Mostra la data ISO originale + il saldo formattato
+            title: (items) => {
+              // Recupera la data ISO dalla label originale (prima del formato)
+              return labels[items[0].dataIndex];
+            },
+            label: ctx => ` Balance: ${ctx.parsed.y.toFixed(2)} \u20AC`
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          // Limita il numero di tick per non sovraffollare l'asse X
+          ticks: { maxTicksLimit: 12, font: { size: 11 } }
+        },
+        y: {
+          grid: { color: theme.gridColor },
+          ticks: {
+            // Mostra il simbolo € accanto ai valori sull'asse Y
+            callback: v => `${v.toFixed(0)} \u20AC`
           }
         }
       }
