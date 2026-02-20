@@ -732,6 +732,28 @@
 <!-- Toast container -->
 <div class="toast-container" id="toast-container"></div>
 
+<!-- ======================== BOTTOM NAV (Mobile) ======================== -->
+<!-- Barra di navigazione fissa in basso, visibile solo su mobile (≤768px).
+     Sostituisce il menu hamburger con un pattern di navigazione nativo mobile. -->
+<nav class="bottom-nav" id="bottom-nav">
+  <button class="bottom-nav-btn active" data-page="main">
+    <i data-lucide="layout-dashboard"></i>
+    <span>Dashboard</span>
+  </button>
+  <button class="bottom-nav-btn" data-page="filtered">
+    <i data-lucide="bar-chart-3"></i>
+    <span>Analytics</span>
+  </button>
+  <button class="bottom-nav-btn" data-page="investments">
+    <i data-lucide="trending-up"></i>
+    <span>Investments</span>
+  </button>
+  <button class="bottom-nav-btn" data-page="settings">
+    <i data-lucide="settings"></i>
+    <span>Settings</span>
+  </button>
+</nav>
+
 <!-- ======================== JAVASCRIPT ======================== -->
 <script src="wallet.js?v=4"></script>
 <script src="app.js?v=4"></script>

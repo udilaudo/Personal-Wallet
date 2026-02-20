@@ -226,6 +226,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   bindImportExport();
   bindInvestmentActions();
   bindMobileNav();
+  bindBottomNav(); // Barra di navigazione inferiore per mobile
   bindFAB();
 
   // Bind dei pulsanti toggle tema (mobile + desktop)
@@ -250,13 +251,17 @@ function bindNavigation() {
 }
 
 function navigateTo(page) {
-  // Desktop nav
+  // Desktop nav (header orizzontale)
   document.querySelectorAll(".nav-btn").forEach(b => b.classList.remove("active"));
   document.querySelectorAll(`.nav-btn[data-page="${page}"]`).forEach(b => b.classList.add("active"));
 
-  // Mobile nav
+  // Mobile nav overlay (menu hamburger slide-in, mantenuto per retrocompatibilità)
   document.querySelectorAll(".mobile-nav-btn").forEach(b => b.classList.remove("active"));
   document.querySelectorAll(`.mobile-nav-btn[data-page="${page}"]`).forEach(b => b.classList.add("active"));
+
+  // Bottom nav (barra inferiore mobile — aggiornamento stato attivo)
+  document.querySelectorAll(".bottom-nav-btn").forEach(b => b.classList.remove("active"));
+  document.querySelectorAll(`.bottom-nav-btn[data-page="${page}"]`).forEach(b => b.classList.add("active"));
 
   // Pages
   document.querySelectorAll(".page").forEach(p => p.classList.add("hidden"));
@@ -291,6 +296,19 @@ function bindMobileNav() {
   });
 
   document.querySelectorAll(".mobile-nav-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      navigateTo(btn.dataset.page);
+    });
+  });
+}
+
+/**
+ * bindBottomNav — collega i pulsanti della bottom navigation bar (mobile)
+ * alla funzione navigateTo(). Ogni pulsante ha data-page="<nome-pagina>"
+ * e chiama navigateTo() esattamente come fanno i pulsanti desktop.
+ */
+function bindBottomNav() {
+  document.querySelectorAll(".bottom-nav-btn").forEach(btn => {
     btn.addEventListener("click", () => {
       navigateTo(btn.dataset.page);
     });

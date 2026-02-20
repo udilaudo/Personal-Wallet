@@ -1664,9 +1664,19 @@ input[type="file"]::file-selector-button:hover {
     gap: 1rem;
   }
 
+  /* Conti in colonna su mobile: ogni chip occupa tutta la larghezza */
   .account-balances-row {
+    flex-direction: column;
     flex-wrap: nowrap;
     gap: 0.5rem;
+  }
+
+  /* Ogni chip del conto si espande a tutta larghezza con layout a riga */
+  .account-balances-row .balance-chip {
+    width: 100%;
+    justify-content: space-between;
+    border-radius: var(--radius-md);
+    padding: 0.65rem 1rem;
   }
 
   .account-pie-wrapper {
@@ -1793,5 +1803,116 @@ input[type="file"]::file-selector-button:hover {
 @media (min-width: 769px) {
   #btn-theme-toggle {
     display: none;
+  }
+}
+
+/* ======================== BOTTOM NAV (Mobile) ======================== */
+/* Nascosta su desktop: viene mostrata solo via media query mobile */
+.bottom-nav {
+  display: none;
+}
+
+/* ======================== MOBILE IMPROVEMENTS ======================== */
+@media (max-width: 768px) {
+
+  /* ---- Bottom Navigation Bar ---- */
+  /* Barra fissa in basso con 4 tab: Dashboard, Analytics, Investments, Settings */
+  .bottom-nav {
+    display: flex;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    background: var(--color-surface);
+    border-top: 1px solid var(--color-border);
+    box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.06);
+    /* env(safe-area-inset-bottom) gestisce il notch/home bar su iPhone */
+    padding-bottom: env(safe-area-inset-bottom, 0);
+    height: calc(60px + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* Singolo tab della bottom nav */
+  .bottom-nav-btn {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.2rem;
+    border: none;
+    background: transparent;
+    color: var(--color-text-muted);
+    font-size: 0.62rem;
+    font-weight: 600;
+    font-family: var(--font);
+    cursor: pointer;
+    transition: color var(--transition);
+    padding: 0.35rem 0.25rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+
+  .bottom-nav-btn svg {
+    width: 22px;
+    height: 22px;
+  }
+
+  /* Stato attivo: colore primary */
+  .bottom-nav-btn.active {
+    color: var(--color-primary);
+  }
+
+  .bottom-nav-btn:hover {
+    color: var(--color-primary);
+  }
+
+  /* ---- Nascondi hamburger: con bottom nav non serve più ---- */
+  #btn-mobile-menu {
+    display: none;
+  }
+
+  /* ---- FAB: spostato sopra la bottom nav ---- */
+  /* Senza questo il FAB sarebbe nascosto dalla barra di navigazione in basso */
+  .fab {
+    bottom: calc(60px + env(safe-area-inset-bottom, 0px) + 1rem) !important;
+    right: 1.25rem;
+  }
+
+  /* ---- Toast: spostati in basso al centro sopra la bottom nav ---- */
+  /* Evita la sovrapposizione con il FAB e con la bottom nav */
+  .toast-container {
+    bottom: calc(60px + env(safe-area-inset-bottom, 0px) + 0.75rem);
+    left: 1rem;
+    right: 1rem;
+    align-items: center;
+  }
+
+  .toast {
+    max-width: 100%;
+    width: 100%;
+    justify-content: center;
+    text-align: center;
+  }
+
+  /* ---- Main content: padding inferiore extra per la bottom nav ---- */
+  .main-content {
+    padding-bottom: calc(60px + env(safe-area-inset-bottom, 0px) + 1.5rem);
+  }
+
+  /* ---- Investments table: la tabella ha 12 colonne, necessita scroll orizzontale ---- */
+  /* Impostiamo una larghezza minima dedicata, più ampia di quella generica delle transaction */
+  #investments-table {
+    min-width: 900px;
+  }
+
+  /* ---- Action bar investimenti: i 3 pulsanti si impilano su schermi piccoli ---- */
+  #page-investments .action-bar-right {
+    flex-wrap: wrap;
+  }
+
+  #page-investments .action-bar-right .btn {
+    flex: 1;
+    min-width: 120px;
   }
 }
