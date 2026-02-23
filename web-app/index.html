@@ -292,13 +292,6 @@
       </div>
     </div>
 
-    <!-- Portfolio Pie Chart -->
-    <div class="chart-card" id="inv-pie-container">
-      <div class="chart-wrapper">
-        <canvas id="chart-inv-pie"></canvas>
-      </div>
-    </div>
-
     <!-- Investment Chart -->
     <div class="chart-card hidden" id="inv-chart-container">
       <div class="inv-chart-header">
@@ -318,6 +311,58 @@
       </div>
       <p class="disclaimer">Data from Yahoo Finance. For personal use only.</p>
     </div>
+
+    <!-- ========== DEPOSIT ACCOUNTS ========== -->
+
+    <!-- Action bar with section title and add button -->
+    <div class="action-bar deposit-section-header">
+      <div class="deposit-title-group">
+        <h2 class="section-title">Deposit Accounts</h2>
+        <span class="section-subtitle">Fixed-term deposits and savings accounts</span>
+      </div>
+      <div class="action-bar-right">
+        <button class="btn btn-primary btn-with-icon" id="btn-open-add-deposit">
+          <i data-lucide="plus"></i> Add Account
+        </button>
+        <button class="btn btn-outline btn-with-icon" id="btn-open-deposit-transfer">
+          <i data-lucide="arrow-left-right"></i> Transfer
+        </button>
+      </div>
+    </div>
+
+    <!-- Summary cards populated dynamically by renderDepositAccountsSection() -->
+    <div class="summary-cards" id="summary-deposits"></div>
+
+    <!-- Deposit accounts table - populated dynamically -->
+    <div class="table-card" id="deposit-table-card">
+      <div class="table-scroll">
+        <table id="deposits-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Bank</th>
+              <th>Rate</th>
+              <th>Payment</th>
+              <th>Current Balance</th>
+              <th>Accrued Interest</th>
+              <th>Next Payment</th>
+              <th>Opened</th>
+              <th>Maturity</th>
+              <th class="th-actions">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="deposits-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Portfolio Pie Chart — in fondo, include investimenti + conti deposito -->
+    <div class="chart-card" id="inv-pie-container">
+      <div class="chart-wrapper">
+        <canvas id="chart-inv-pie"></canvas>
+      </div>
+    </div>
+
   </section>
 
   <!-- ========== SUBSCRIPTIONS (pagina dedicata, estratta da Settings) ========== -->
@@ -653,6 +698,161 @@
     <div class="modal-footer">
       <button class="btn btn-outline" data-close="modal-manual-price">Cancel</button>
       <button class="btn btn-primary" id="btn-manual-price">Update</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Add Deposit Account -->
+<div class="modal-overlay hidden" id="modal-add-deposit">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Add Deposit Account</h3>
+      <button class="modal-close" data-close="modal-add-deposit"><i data-lucide="x"></i></button>
+    </div>
+    <div class="modal-body">
+      <!-- Row 1: name and bank -->
+      <div class="form-row">
+        <div class="form-group">
+          <label>Name</label>
+          <input type="text" id="dep-name" placeholder="e.g. ING Deposit Account" class="input" />
+        </div>
+        <div class="form-group">
+          <label>Bank</label>
+          <input type="text" id="dep-bank" placeholder="e.g. ING Direct" class="input" />
+        </div>
+      </div>
+      <!-- Row 2: gross annual rate and tax rate -->
+      <div class="form-row">
+        <div class="form-group">
+          <label>Gross Annual Rate (%)</label>
+          <input type="number" id="dep-rate" min="0" step="0.01" value="2.00" class="input" />
+          <small class="input-hint">Gross rate (before taxes)</small>
+        </div>
+        <div class="form-group">
+          <label>Interest Tax Rate (%)</label>
+          <input type="number" id="dep-tax-rate" min="0" max="100" step="0.1" value="26" class="input" />
+          <small class="input-hint">Default: 26% (Italian deposit account rate)</small>
+        </div>
+      </div>
+      <!-- Row 2b: payment frequency -->
+      <div class="form-row">
+        <div class="form-group">
+          <label>Interest Payment Frequency</label>
+          <select id="dep-frequency" class="input">
+            <option value="giornaliero">Daily</option>
+            <option value="mensile">Monthly</option>
+            <option value="trimestrale">Quarterly</option>
+            <option value="semestrale">Semi-annual</option>
+            <option value="annuale" selected>Annual</option>
+          </select>
+        </div>
+      </div>
+      <!-- Row 3: opening date and maturity date -->
+      <div class="form-row">
+        <div class="form-group">
+          <label>Opening Date</label>
+          <input type="date" id="dep-start" class="input" />
+        </div>
+        <div class="form-group">
+          <label>Maturity Date (optional)</label>
+          <input type="date" id="dep-end" class="input" />
+          <small class="input-hint">Leave blank if no maturity date</small>
+        </div>
+      </div>
+      <!-- Row 4: linked wallet account and initial deposit -->
+      <div class="form-row">
+        <div class="form-group">
+          <label>Linked Wallet Account</label>
+          <!-- Populated dynamically with the wallet account list -->
+          <select id="dep-linked-conto" class="input"></select>
+          <small class="input-hint">Account to transfer funds from/to</small>
+        </div>
+        <div class="form-group">
+          <label>Initial Deposit (&euro;)</label>
+          <input type="number" id="dep-initial" min="0" step="0.01" value="0.00" class="input" />
+          <small class="input-hint">0 to transfer later</small>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" data-close="modal-add-deposit">Cancel</button>
+      <button class="btn btn-primary" id="btn-add-deposit">Add Account</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Transfer to/from Deposit Account -->
+<div class="modal-overlay hidden" id="modal-deposit-transfer">
+  <div class="modal modal-sm">
+    <div class="modal-header">
+      <h3>Transfer Funds</h3>
+      <button class="modal-close" data-close="modal-deposit-transfer"><i data-lucide="x"></i></button>
+    </div>
+    <div class="modal-body">
+      <!-- Deposit account selection -->
+      <div class="form-group">
+        <label>Deposit Account</label>
+        <!-- Populated dynamically with all deposit accounts -->
+        <select id="dep-transfer-account" class="input"></select>
+      </div>
+      <!-- Transfer direction -->
+      <div class="form-group">
+        <label>Direction</label>
+        <select id="dep-transfer-direction" class="input">
+          <option value="in">⬇️ Deposit (wallet → deposit account)</option>
+          <option value="out">⬆️ Withdraw (deposit account → wallet)</option>
+        </select>
+      </div>
+      <!-- Amount -->
+      <div class="form-group">
+        <label>Amount (&euro;)</label>
+        <input type="number" id="dep-transfer-amount" min="0" step="0.01" value="0.00" class="input" />
+      </div>
+      <!-- Transfer date -->
+      <div class="form-group">
+        <label>Date</label>
+        <input type="date" id="dep-transfer-date" class="input" />
+      </div>
+      <!-- Optional notes -->
+      <div class="form-group">
+        <label>Notes (optional)</label>
+        <input type="text" id="dep-transfer-note" placeholder="e.g. first transfer" class="input" />
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" data-close="modal-deposit-transfer">Cancel</button>
+      <button class="btn btn-primary" id="btn-deposit-transfer">Confirm Transfer</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Deposit Account Transaction History -->
+<div class="modal-overlay hidden" id="modal-deposit-history">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <h3 id="dep-history-title">Transaction History</h3>
+      <button class="modal-close" data-close="modal-deposit-history"><i data-lucide="x"></i></button>
+    </div>
+    <div class="modal-body">
+      <!-- Account summary -->
+      <div id="dep-history-summary" class="dep-history-summary"></div>
+      <!-- Transactions table -->
+      <div class="table-scroll">
+        <table class="dep-history-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Type</th>
+              <th>Amount</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody id="dep-history-body"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" data-close="modal-deposit-history">Close</button>
     </div>
   </div>
 </div>

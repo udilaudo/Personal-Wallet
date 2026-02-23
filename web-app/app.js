@@ -62,8 +62,18 @@ let investments = JSON.parse(localStorage.getItem("wallet_investments") || "[]")
 let selectedInvTicker = null;
 let selectedInvRange = "1mo";
 
+// ======================== CONTI DEPOSITO — STATO GLOBALE ========================
+// Array di conti deposito: ogni elemento ha id, nome, banca, tasso, frequenza,
+// date di apertura/scadenza, conto wallet collegato e lista movimenti interni.
+let depositAccounts = JSON.parse(localStorage.getItem("wallet_deposits") || "[]");
+
 function saveInvestments() {
   localStorage.setItem("wallet_investments", JSON.stringify(investments));
+}
+
+// Salva i conti deposito su localStorage (poi il backend override aggiunge il sync)
+function saveDepositAccounts() {
+  localStorage.setItem("wallet_deposits", JSON.stringify(depositAccounts));
 }
 
 // ======================== BACKEND SYNC ========================
@@ -80,6 +90,8 @@ async function syncToBackend() {
         subscriptions: wallet.subscriptions,
         commission: wallet.commission,
         investments: investments,
+        // Includiamo anche i conti deposito nel backup su backend
+        depositAccounts: depositAccounts,
       }),
     });
   } catch (e) {
@@ -107,6 +119,11 @@ async function loadFromBackend() {
       investments = data.investments;
     }
 
+    // Ripristina i conti deposito dal backend se presenti
+    if (data.depositAccounts && data.depositAccounts.length > 0) {
+      depositAccounts = data.depositAccounts;
+    }
+
     return true;
   } catch (e) {
     console.warn("Backend not available, using localStorage:", e.message);
@@ -125,6 +142,13 @@ wallet.save = function () {
 const _originalSaveInvestments = saveInvestments;
 saveInvestments = function () {
   _originalSaveInvestments();
+  syncToBackend();
+};
+
+// Override saveDepositAccounts to also sync to backend
+const _originalSaveDepositAccounts = saveDepositAccounts;
+saveDepositAccounts = function () {
+  _originalSaveDepositAccounts();
   syncToBackend();
 };
 
@@ -205,6 +229,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("edit-date").value = today;
   document.getElementById("sub-start").value = today;
   document.getElementById("inv-date").value = today;
+  // Date iniziali per i modali dei conti deposito
+  document.getElementById("dep-start").value = today;
+  document.getElementById("dep-transfer-date").value = today;
 
   // Default: ultimi 2 mesi (coerente con il preset "Last 2 Months" attivo di default)
   // const twoMonthsAgo = new Date();
@@ -227,6 +254,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("toggle-saldo-main").classList.toggle("active", excludeSaldoMain);
   bindImportExport();
   bindInvestmentActions();
+  bindDepositAccountActions(); // Binding per la sezione Conti Deposito
   bindMobileNav();
   bindBottomNav(); // Barra di navigazione inferiore per mobile
   bindFAB();
@@ -1794,6 +1822,9 @@ function renderInvestmentsPage() {
   // Portfolio Allocation Pie Chart
   renderInvestmentsPieChart();
 
+  // Renderizza la sezione conti deposito (sotto il portafoglio)
+  renderDepositAccountsSection();
+
   lucide.createIcons();
 
   // Bind chart buttons
@@ -1852,7 +1883,34 @@ function renderInvestmentsPieChart() {
   const container = document.getElementById("inv-pie-container");
   if (!container) return;
 
-  if (investments.length === 0) {
+  // Costruiamo un array unificato con investimenti + conti deposito
+  // così il grafico mostra l'allocazione totale del portafoglio
+  const allItems = [];
+
+  // Aggiunge gli investimenti tradizionali (ETF, BTP, Stock, ecc.)
+  investments.forEach(inv => {
+    allItems.push({
+      label: inv.name,
+      value: (inv.currentPrice || inv.purchasePrice) * inv.quantity,
+      isDeposit: false
+    });
+  });
+
+  // Aggiunge i conti deposito come slice separati nel grafico
+  depositAccounts.forEach(dep => {
+    const bal = calcDepositBalance(dep);
+    if (bal > 0) {
+      allItems.push({
+        // Sufisso visivo per distinguere i depositi nel grafico
+        label: `${dep.name} (Dep.)`,
+        value: bal,
+        isDeposit: true
+      });
+    }
+  });
+
+  // Nascondi se non ci sono voci
+  if (allItems.length === 0) {
     container.classList.add("hidden");
     return;
   }
@@ -1860,10 +1918,20 @@ function renderInvestmentsPieChart() {
 
   if (currentChartInvPie) currentChartInvPie.destroy();
 
-  const labels = investments.map(inv => inv.name);
-  const values = investments.map(inv => (inv.currentPrice || inv.purchasePrice) * inv.quantity);
-  const colors = investments.map((_, i) => PIE_COLORS[i % PIE_COLORS.length]);
+  const labels = allItems.map(it => it.label);
+  const values = allItems.map(it => it.value);
   const total = values.reduce((a, b) => a + b, 0);
+
+  // Palette colori: i depositi usano toni verdastri/teal per distinguerli visivamente
+  const DEPOSIT_COLORS = [
+    "#10b981", "#14b8a6", "#6ee7b7", "#34d399", "#059669",
+    "#0d9488", "#047857", "#065f46"
+  ];
+  const colors = allItems.map((it, i) =>
+    it.isDeposit
+      ? DEPOSIT_COLORS[depositAccounts.findIndex(d => it.label.startsWith(d.name)) % DEPOSIT_COLORS.length]
+      : PIE_COLORS[investments.findIndex(inv => it.label === inv.name) % PIE_COLORS.length]
+  );
 
   const ctx = document.getElementById("chart-inv-pie").getContext("2d");
   currentChartInvPie = new Chart(ctx, {
@@ -1880,7 +1948,12 @@ function renderInvestmentsPieChart() {
     options: {
       responsive: true,
       plugins: {
-        title: { display: true, text: "Portfolio Allocation", font: { size: 16, weight: "bold" } },
+        // Titolo aggiornato per riflettere il portafoglio completo
+        title: {
+          display: true,
+          text: "Portfolio Allocation (Investments + Deposit Accounts)",
+          font: { size: 15, weight: "bold" }
+        },
         legend: { position: "bottom" },
         tooltip: {
           callbacks: {
@@ -2109,5 +2182,719 @@ function bindInvestmentActions() {
         showInvestmentChart(selectedInvTicker, selectedInvRange, inv);
       }
     });
+  });
+}
+
+// ======================== CONTI DEPOSITO ========================
+
+/**
+ * Calcola il saldo attuale di un conto deposito.
+ * OPZIONE A (capitalizzazione): gli interessi registrati come movimenti "interessi"
+ * vengono sommati al saldo, aumentando la base per i calcoli futuri (interesse composto).
+ *
+ * @param {Object} dep - Oggetto conto deposito
+ * @returns {number} saldo attuale inclusi interessi capitalizzati (€)
+ */
+function calcDepositBalance(dep) {
+  return dep.transactions.reduce((sum, t) => {
+    if (t.type === "deposito")  return sum + t.amount;
+    if (t.type === "prelievo")  return sum - t.amount;
+    if (t.type === "interessi") return sum + t.amount; // capitalizzati → aumentano il saldo
+    return sum;
+  }, 0);
+}
+
+/**
+ * Calcola il tasso netto annuo dopo tassazione.
+ * Formula: tassoNetto = tassoLordo * (1 - aliquota/100)
+ *
+ * @param {Object} dep - Oggetto conto deposito
+ * @returns {number} tasso netto (percentuale)
+ */
+function calcNetRate(dep) {
+  const taxRate = dep.taxRate ?? 26; // default 26% (aliquota italiana)
+  return dep.annualRate * (1 - taxRate / 100);
+}
+
+/**
+ * Calcola gli interessi netti maturati in un intervallo di date specifico.
+ * Tiene conto del saldo al inizio del periodo (inclusi eventuali interessi già
+ * capitalizzati precedentemente) e di tutti i movimenti intermedi (depositi/prelievi).
+ * Metodo: interessi semplici ponderati per i giorni con la formula
+ *         capitale * tassoNetto/100 * giorni/365
+ *
+ * @param {Object} dep          - Oggetto conto deposito
+ * @param {string} fromDateStr  - Data inizio periodo (YYYY-MM-DD, inclusa)
+ * @param {string} toDateStr    - Data fine periodo (YYYY-MM-DD, esclusa)
+ * @returns {number} interessi netti per il periodo (€)
+ */
+function calcInterestForPeriod(dep, fromDateStr, toDateStr) {
+  const netRate = calcNetRate(dep);
+
+  const from = new Date(fromDateStr); from.setHours(0, 0, 0, 0);
+  const to   = new Date(toDateStr);   to.setHours(0, 0, 0, 0);
+
+  if (to <= from) return 0;
+
+  // Saldo al inizio del periodo: somma di TUTTE le transazioni fino a fromDate inclusa
+  // (questo include anche gli interessi capitalizzati dei periodi precedenti)
+  let balanceAtFrom = dep.transactions
+    .filter(t => { const d = new Date(t.date); d.setHours(0,0,0,0); return d <= from; })
+    .reduce((sum, t) => {
+      if (t.type === "deposito")  return sum + t.amount;
+      if (t.type === "prelievo")  return sum - t.amount;
+      if (t.type === "interessi") return sum + t.amount;
+      return sum;
+    }, 0);
+
+  // Movimenti INTERNI al periodo (dopo fromDate, prima di toDate)
+  // Non includiamo gli "interessi" intermedi perché non ne esistono ancora (li stiamo calcolando)
+  const movements = dep.transactions
+    .filter(t => {
+      if (t.type === "interessi") return false; // non ancora registrati
+      const d = new Date(t.date); d.setHours(0,0,0,0);
+      return d > from && d < to;
+    })
+    .sort((a, b) => new Date(a.date) - new Date(b.date));
+
+  // Calcolo interessi ponderati per i giorni
+  let totalInterest = 0;
+  let currentBalance = balanceAtFrom;
+  let prevDate = new Date(from);
+
+  for (const t of movements) {
+    const tDate = new Date(t.date); tDate.setHours(0,0,0,0);
+    const days = (tDate - prevDate) / (1000 * 60 * 60 * 24);
+    if (days > 0 && currentBalance > 0) {
+      totalInterest += currentBalance * (netRate / 100) * (days / 365);
+    }
+    if (t.type === "deposito") currentBalance += t.amount;
+    if (t.type === "prelievo") currentBalance -= t.amount;
+    prevDate = tDate;
+  }
+
+  // Segmento finale: dall'ultimo movimento a toDate
+  const remainingDays = (to - prevDate) / (1000 * 60 * 60 * 24);
+  if (remainingDays > 0 && currentBalance > 0) {
+    totalInterest += currentBalance * (netRate / 100) * (remainingDays / 365);
+  }
+
+  return Math.max(0, totalInterest);
+}
+
+/**
+ * Registra automaticamente tutti i pagamenti di interessi scaduti ma non ancora
+ * registrati come movimenti nel conto deposito (OPZIONE A: capitalizzazione).
+ *
+ * Algoritmo:
+ *   1. Genera tutte le date di pagamento passate (in base a frequenza e data apertura)
+ *   2. Per ogni data non ancora presente come transazione "interessi":
+ *      - Calcola l'interesse per quel periodo (da ultima data di pagamento a questa)
+ *      - Aggiunge un movimento "interessi" all'array transactions del conto
+ *   3. Restituisce true se almeno un nuovo movimento è stato aggiunto
+ *      (così il chiamante può salvare)
+ *
+ * @param {Object} dep - Oggetto conto deposito (modificato in-place)
+ * @returns {boolean} true se sono stati aggiunti nuovi pagamenti
+ */
+function processInterestPayments(dep) {
+  if (!dep.startDate) return false;
+
+  // Non possiamo guadagnare interessi se non c'è nessun deposito
+  const hasDeposit = dep.transactions.some(t => t.type === "deposito");
+  if (!hasDeposit) return false;
+
+  const today = new Date(); today.setHours(0,0,0,0);
+  const startDate = new Date(dep.startDate); startDate.setHours(0,0,0,0);
+
+  // ——— Genera tutte le date di pagamento passate ———
+  const paymentDates = [];
+
+  if (dep.paymentFrequency === "giornaliero") {
+    // Un pagamento al giorno, dal giorno dopo l'apertura fino a ieri
+    let cur = new Date(startDate);
+    cur.setDate(cur.getDate() + 1);
+    while (cur < today) { // "< today": oggi non è ancora scaduto
+      paymentDates.push(cur.toISOString().split("T")[0]);
+      cur = new Date(cur);
+      cur.setDate(cur.getDate() + 1);
+    }
+  } else {
+    const freqMonths = { mensile: 1, trimestrale: 3, semestrale: 6, annuale: 12 };
+    const months = freqMonths[dep.paymentFrequency] || 12;
+    let cur = new Date(startDate);
+    cur.setMonth(cur.getMonth() + months);
+    while (cur <= today) {
+      paymentDates.push(cur.toISOString().split("T")[0]);
+      cur = new Date(cur);
+      cur.setMonth(cur.getMonth() + months);
+    }
+  }
+
+  if (paymentDates.length === 0) return false;
+
+  // Date di pagamento già registrate (per evitare duplicati)
+  const existingDates = new Set(
+    dep.transactions.filter(t => t.type === "interessi").map(t => t.date)
+  );
+
+  const missing = paymentDates.filter(d => !existingDates.has(d));
+  if (missing.length === 0) return false;
+
+  let changed = false;
+  // Data di inizio del primo periodo: la data di apertura del conto
+  let prevDate = dep.startDate;
+
+  // Costruiamo la lista ordinata di TUTTE le date di pagamento per trovare i periodi corretti
+  const allPaymentDates = paymentDates; // già in ordine cronologico
+
+  for (const payDate of missing) {
+    // Il periodo di calcolo va dall'ultima data di pagamento precedente (o apertura) a questa
+    const idx = allPaymentDates.indexOf(payDate);
+    const periodFrom = idx > 0 ? allPaymentDates[idx - 1] : dep.startDate;
+
+    const interest = calcInterestForPeriod(dep, periodFrom, payDate);
+
+    // Registra solo se l'importo è significativo (> 0.001 €, evita "polvere")
+    if (interest > 0.001) {
+      const newId = dep.transactions.length > 0
+        ? Math.max(...dep.transactions.map(t => t.id)) + 1
+        : 0;
+
+      dep.transactions.push({
+        id: newId,
+        date: payDate,
+        type: "interessi",
+        amount: Math.round(interest * 100) / 100, // arrotonda al centesimo
+        note: `Capitalized interest (${{ giornaliero: "daily", mensile: "monthly", trimestrale: "quarterly", semestrale: "semi-annual", annuale: "annual" }[dep.paymentFrequency] || dep.paymentFrequency}) — ${dep.annualRate}% gross`
+      });
+
+      changed = true;
+    }
+  }
+
+  return changed;
+}
+
+/**
+ * Calcola il totale degli interessi maturati (registrati + non ancora pagati).
+ * = somma di tutti i movimenti "interessi" già registrati
+ * + interessi maturati dal l'ultimo pagamento a oggi (non ancora registrati)
+ *
+ * @param {Object} dep - Oggetto conto deposito
+ * @returns {number} interessi netti totali (€)
+ */
+function calcAccruedInterest(dep) {
+  if (!dep.transactions.length) return 0;
+
+  // Interessi già capitalizzati (registrati come movimenti)
+  const registeredInterest = dep.transactions
+    .filter(t => t.type === "interessi")
+    .reduce((sum, t) => sum + t.amount, 0);
+
+  // Trova la data dell'ultimo pagamento registrato (o la data di apertura)
+  const lastInterestTx = dep.transactions
+    .filter(t => t.type === "interessi")
+    .sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+
+  const fromDate = lastInterestTx ? lastInterestTx.date : dep.startDate;
+  if (!fromDate) return registeredInterest;
+
+  const today = new Date().toISOString().split("T")[0];
+
+  // Interessi non ancora registrati (dall'ultimo pagamento a oggi)
+  const unregistered = calcInterestForPeriod(dep, fromDate, today);
+
+  return registeredInterest + unregistered;
+}
+
+/**
+ * Calcola la data del prossimo pagamento interessi in base alla frequenza.
+ * Parte dalla data di apertura e avanza finché non supera oggi.
+ * Per la frequenza giornaliera restituisce direttamente domani.
+ *
+ * @param {Object} dep - Oggetto conto deposito
+ * @returns {string} data in formato YYYY-MM-DD oppure "—" se non disponibile
+ */
+function calcNextInterestDate(dep) {
+  if (!dep.startDate) return "—";
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  // Caso speciale: frequenza giornaliera → prossimo pagamento è sempre domani
+  if (dep.paymentFrequency === "giornaliero") {
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    return tomorrow.toISOString().split("T")[0];
+  }
+
+  // Numero di mesi tra un pagamento e l'altro per ogni frequenza
+  const freqMap = { mensile: 1, trimestrale: 3, semestrale: 6, annuale: 12 };
+  const months = freqMap[dep.paymentFrequency] || 12;
+
+  // Partiamo dalla data di apertura e avanziamo di `months` mesi finché superiamo oggi
+  let next = new Date(dep.startDate);
+  next.setHours(0, 0, 0, 0);
+
+  while (next <= today) {
+    next.setMonth(next.getMonth() + months);
+  }
+
+  return next.toISOString().split("T")[0];
+}
+
+/**
+ * Popola i <select> dei modali deposito con i dati aggiornati.
+ * - dep-linked-conto: lista conti wallet
+ * - dep-transfer-account: lista conti deposito esistenti
+ */
+function populateDepositSelects() {
+  // Conto wallet collegato (per il modal aggiunta conto)
+  const linkedContoSel = document.getElementById("dep-linked-conto");
+  if (linkedContoSel) {
+    linkedContoSel.innerHTML = "";
+    wallet.contiList.forEach(c => {
+      const opt = document.createElement("option");
+      opt.value = c;
+      opt.textContent = c;
+      linkedContoSel.appendChild(opt);
+    });
+  }
+
+  // Selezione conto deposito (per il modal trasferimento)
+  const transferAccSel = document.getElementById("dep-transfer-account");
+  if (transferAccSel) {
+    transferAccSel.innerHTML = depositAccounts.length === 0
+      ? '<option value="">Nessun conto disponibile</option>'
+      : "";
+    depositAccounts.forEach(dep => {
+      const opt = document.createElement("option");
+      opt.value = dep.id;
+      opt.textContent = `${dep.name} (${dep.bank || "—"}) — ${calcDepositBalance(dep).toFixed(2)} €`;
+      transferAccSel.appendChild(opt);
+    });
+  }
+}
+
+/**
+ * Renderizza la sezione "Conti Deposito" nella pagina Investments.
+ * Prima di renderizzare, chiama processInterestPayments() su ogni conto
+ * per capitalizzare automaticamente gli interessi scaduti.
+ * Mostra le summary cards globali e la tabella con tutti i conti.
+ */
+function renderDepositAccountsSection() {
+  // ——— Auto-capitalizzazione interessi scaduti ———
+  // Per ogni conto deposito, registra i pagamenti di interessi non ancora contabilizzati.
+  // Se qualcosa è cambiato, salva e aggiorna il grafico del portafoglio.
+  let anyChanged = false;
+  depositAccounts.forEach(dep => {
+    if (processInterestPayments(dep)) anyChanged = true;
+  });
+  if (anyChanged) {
+    saveDepositAccounts();
+    // Aggiorna anche il pie chart che include i saldi dei depositi
+    renderInvestmentsPieChart();
+  }
+
+  // ——— Summary cards globali ———
+  const summaryDiv = document.getElementById("summary-deposits");
+  if (!summaryDiv) return;
+
+  let totalBalance = 0;
+  let totalInterest = 0;
+  let weightedRate = 0;
+  let weightSum = 0;
+
+  depositAccounts.forEach(dep => {
+    const bal = calcDepositBalance(dep);
+    const interest = calcAccruedInterest(dep);
+    totalBalance += bal;
+    totalInterest += interest;
+    // Media pesata del tasso (peso = saldo)
+    weightedRate += dep.annualRate * bal;
+    weightSum += bal;
+  });
+
+  const avgRate = weightSum > 0 ? weightedRate / weightSum : 0;
+
+  summaryDiv.innerHTML = `
+    <div class="card card-dep-balance">
+      <div class="card-icon"><i data-lucide="vault"></i></div>
+      <span class="card-label">Total Deposited</span>
+      <span class="card-value">${totalBalance.toFixed(2)} &euro;</span>
+    </div>
+    <div class="card card-dep-interest">
+      <div class="card-icon"><i data-lucide="trending-up"></i></div>
+      <span class="card-label">Interest (net)</span>
+      <span class="card-value">+${totalInterest.toFixed(2)} &euro;</span>
+    </div>
+    <div class="card card-dep-rate">
+      <div class="card-icon"><i data-lucide="percent"></i></div>
+      <span class="card-label">Avg. Rate</span>
+      <span class="card-value">${avgRate.toFixed(2)}%</span>
+    </div>
+    <div class="card card-dep-accounts">
+      <div class="card-icon"><i data-lucide="landmark"></i></div>
+      <span class="card-label">Active Accounts</span>
+      <span class="card-value">${depositAccounts.length}</span>
+    </div>
+  `;
+
+  // ——— Tabella conti deposito ———
+  const tbody = document.getElementById("deposits-body");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+
+  if (depositAccounts.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="10" class="empty-msg">
+      No deposit accounts yet. Click "Add Account" to get started.
+    </td></tr>`;
+    lucide.createIcons();
+    return;
+  }
+
+  depositAccounts.forEach(dep => {
+    const balance = calcDepositBalance(dep);
+    const interest = calcAccruedInterest(dep);
+    const nextDate = calcNextInterestDate(dep);
+
+    // Badge colore per la frequenza (incluso giornaliero)
+    const freqColors = {
+      giornaliero: "dep-freq-daily",
+      mensile: "dep-freq-monthly",
+      trimestrale: "dep-freq-quarterly",
+      semestrale: "dep-freq-semiannual",
+      annuale: "dep-freq-annual"
+    };
+    const freqClass = freqColors[dep.paymentFrequency] || "dep-freq-annual";
+
+    // Calcola il tasso netto per visualizzazione
+    const netRate = calcNetRate(dep);
+    const taxRate = dep.taxRate ?? 26;
+
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td class="dep-name-cell">
+        <strong>${dep.name}</strong>
+        ${dep.linkedConto ? `<small class="dep-linked-tag">${dep.linkedConto}</small>` : ""}
+      </td>
+      <td>${dep.bank || "—"}</td>
+      <td>
+        <span class="dep-rate-badge">${dep.annualRate.toFixed(2)}% gross</span>
+        <small class="dep-rate-net">${netRate.toFixed(2)}% net (${taxRate}% tax)</small>
+      </td>
+      <td><span class="dep-freq-badge ${freqClass}">${{ giornaliero: "Daily", mensile: "Monthly", trimestrale: "Quarterly", semestrale: "Semi-annual", annuale: "Annual" }[dep.paymentFrequency] || dep.paymentFrequency}</span></td>
+      <td class="amount positive"><strong>${balance.toFixed(2)} &euro;</strong></td>
+      <td class="amount positive">+${interest.toFixed(2)} &euro;</td>
+      <td>${nextDate}</td>
+      <td>${dep.startDate || "—"}</td>
+      <td>${dep.endDate || "—"}</td>
+      <td>
+        <div class="inv-actions">
+          <button class="btn-icon" title="Transaction history" data-dep-history="${dep.id}">
+            <i data-lucide="history"></i>
+          </button>
+          <button class="btn-icon" title="Transfer" data-dep-transfer="${dep.id}">
+            <i data-lucide="arrow-left-right"></i>
+          </button>
+          <button class="btn-icon btn-icon-danger" title="Remove account" data-dep-remove="${dep.id}">
+            <i data-lucide="trash-2"></i>
+          </button>
+        </div>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  lucide.createIcons();
+
+  // Bind bottone storico dalla riga
+  document.querySelectorAll("[data-dep-history]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const id = parseInt(btn.dataset.depHistory);
+      openDepositHistoryModal(id);
+    });
+  });
+
+  // Bind bottone trasferisci dalla riga (precompila il select sul conto corretto)
+  document.querySelectorAll("[data-dep-transfer]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const id = parseInt(btn.dataset.depTransfer);
+      populateDepositSelects();
+      // Seleziona automaticamente il conto corrispondente nel modal
+      const sel = document.getElementById("dep-transfer-account");
+      if (sel) sel.value = id;
+      document.getElementById("dep-transfer-date").value = new Date().toISOString().split("T")[0];
+      openModal("modal-deposit-transfer");
+    });
+  });
+
+  // Bind bottone elimina dalla riga
+  document.querySelectorAll("[data-dep-remove]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const id = parseInt(btn.dataset.depRemove);
+      const dep = depositAccounts.find(d => d.id === id);
+      if (!dep) return;
+
+      // Conferma prima di eliminare
+      if (!confirm(`Remove account "${dep.name}"? This action cannot be undone.`)) return;
+
+      depositAccounts = depositAccounts.filter(d => d.id !== id);
+      saveDepositAccounts();
+      renderDepositAccountsSection();
+      showToast(`Account "${dep.name}" removed.`);
+    });
+  });
+}
+
+/**
+ * Apre il modal storico movimenti per un conto deposito specifico.
+ * Mostra un riepilogo e la lista di tutti i movimenti registrati.
+ *
+ * @param {number} depId - ID del conto deposito
+ */
+function openDepositHistoryModal(depId) {
+  const dep = depositAccounts.find(d => d.id === depId);
+  if (!dep) return;
+
+  const balance = calcDepositBalance(dep);
+  const totalInterest = calcAccruedInterest(dep);
+
+  // Interessi già capitalizzati (registrati come movimenti)
+  const capitalizedInterest = dep.transactions
+    .filter(t => t.type === "interessi")
+    .reduce((sum, t) => sum + t.amount, 0);
+  // Interessi ancora in maturazione (dal l'ultimo pagamento a oggi, non ancora registrati)
+  const accruingInterest = Math.max(0, totalInterest - capitalizedInterest);
+
+  // Titolo modal
+  document.getElementById("dep-history-title").textContent = `History — ${dep.name}`;
+
+  // Riepilogo del conto con dettaglio interessi
+  document.getElementById("dep-history-summary").innerHTML = `
+    <div class="dep-history-cards">
+      <div class="dep-hist-card">
+        <span class="dep-hist-label">Current Balance</span>
+        <span class="dep-hist-value">${balance.toFixed(2)} €</span>
+      </div>
+      <div class="dep-hist-card">
+        <span class="dep-hist-label">Capitalized Interest</span>
+        <span class="dep-hist-value positive">+${capitalizedInterest.toFixed(2)} €</span>
+      </div>
+      <div class="dep-hist-card">
+        <span class="dep-hist-label">Accruing</span>
+        <span class="dep-hist-value positive">+${accruingInterest.toFixed(2)} €</span>
+      </div>
+      <div class="dep-hist-card">
+        <span class="dep-hist-label">Net Rate</span>
+        <span class="dep-hist-value">${calcNetRate(dep).toFixed(2)}%</span>
+      </div>
+      <div class="dep-hist-card">
+        <span class="dep-hist-label">Payment</span>
+        <span class="dep-hist-value">${{ giornaliero: "Daily", mensile: "Monthly", trimestrale: "Quarterly", semestrale: "Semi-annual", annuale: "Annual" }[dep.paymentFrequency] || dep.paymentFrequency}</span>
+      </div>
+    </div>
+  `;
+
+  // Lista movimenti ordinata dal più recente
+  const tbody = document.getElementById("dep-history-body");
+  tbody.innerHTML = "";
+
+  if (!dep.transactions.length) {
+    tbody.innerHTML = '<tr><td colspan="4" class="empty-msg">No transactions recorded.</td></tr>';
+  } else {
+    // Ordina dal più recente al più vecchio
+    const sorted = [...dep.transactions].sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    sorted.forEach(t => {
+      const tr = document.createElement("tr");
+      const isPositive = t.type === "deposito" || t.type === "interessi";
+
+      // Icona e colore per tipo movimento
+      const typeConfig = {
+        deposito: { label: "Deposit", icon: "arrow-down-circle", cls: "positive" },
+        prelievo: { label: "Withdrawal", icon: "arrow-up-circle", cls: "negative" },
+        interessi: { label: "Interest", icon: "sparkles", cls: "positive" }
+      };
+      const cfg = typeConfig[t.type] || { label: t.type, icon: "circle", cls: "" };
+
+      tr.innerHTML = `
+        <td>${t.date}</td>
+        <td>
+          <span class="dep-type-badge dep-type-${t.type}">
+            <i data-lucide="${cfg.icon}"></i> ${cfg.label}
+          </span>
+        </td>
+        <td class="amount ${cfg.cls}">
+          ${isPositive ? "+" : "-"}${t.amount.toFixed(2)} &euro;
+        </td>
+        <td>${t.note || "—"}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  lucide.createIcons();
+  openModal("modal-deposit-history");
+}
+
+/**
+ * Collega tutti gli event listener per la sezione Conti Deposito.
+ * Chiamato una sola volta al DOMContentLoaded.
+ */
+function bindDepositAccountActions() {
+
+  // ——— Apertura modal aggiunta conto ———
+  document.getElementById("btn-open-add-deposit").addEventListener("click", () => {
+    // Popola il select dei conti wallet prima di aprire
+    populateDepositSelects();
+    // Reset form
+    document.getElementById("dep-name").value = "";
+    document.getElementById("dep-bank").value = "";
+    document.getElementById("dep-rate").value = "2.00";
+    document.getElementById("dep-tax-rate").value = "26"; // aliquota default 26%
+    document.getElementById("dep-frequency").value = "annuale";
+    document.getElementById("dep-start").value = new Date().toISOString().split("T")[0];
+    document.getElementById("dep-end").value = "";
+    document.getElementById("dep-initial").value = "0.00";
+    openModal("modal-add-deposit");
+  });
+
+  // ——— Apertura modal trasferimento (da action bar) ———
+  document.getElementById("btn-open-deposit-transfer").addEventListener("click", () => {
+    if (depositAccounts.length === 0) {
+      return showToast("No deposit accounts available. Add one first.", "warning");
+    }
+    populateDepositSelects();
+    document.getElementById("dep-transfer-amount").value = "0.00";
+    document.getElementById("dep-transfer-note").value = "";
+    document.getElementById("dep-transfer-date").value = new Date().toISOString().split("T")[0];
+    openModal("modal-deposit-transfer");
+  });
+
+  // ——— Conferma aggiunta nuovo conto deposito ———
+  document.getElementById("btn-add-deposit").addEventListener("click", () => {
+    const name = document.getElementById("dep-name").value.trim();
+    const bank = document.getElementById("dep-bank").value.trim();
+    const annualRate = parseFloat(document.getElementById("dep-rate").value);
+    // Tasso di tassazione sugli interessi (default 26% — aliquota italiana)
+    const taxRate = parseFloat(document.getElementById("dep-tax-rate").value) || 26;
+    const paymentFrequency = document.getElementById("dep-frequency").value;
+    const startDate = document.getElementById("dep-start").value;
+    const endDate = document.getElementById("dep-end").value;
+    const linkedConto = document.getElementById("dep-linked-conto").value;
+    const initialAmount = parseFloat(document.getElementById("dep-initial").value) || 0;
+
+    // Validazione input
+    if (!name) return showToast("Please enter an account name.", "error");
+    if (isNaN(annualRate) || annualRate < 0) return showToast("Please enter a valid rate.", "error");
+    if (!startDate) return showToast("Please enter the opening date.", "error");
+
+    // Crea il nuovo conto deposito
+    const id = depositAccounts.length > 0
+      ? Math.max(...depositAccounts.map(d => d.id)) + 1
+      : 0;
+
+    const newDep = {
+      id,
+      name,
+      bank,
+      annualRate,
+      taxRate,          // aliquota fiscale sugli interessi (es. 26%)
+      paymentFrequency,
+      startDate,
+      endDate: endDate || null,
+      linkedConto,
+      // Lista movimenti: include il deposito iniziale se > 0
+      transactions: []
+    };
+
+    // Se c'è un deposito iniziale, registriamo il primo movimento e la transazione nel wallet
+    if (initialAmount > 0) {
+      newDep.transactions.push({
+        id: 0,
+        date: startDate,
+        type: "deposito",
+        amount: initialAmount,
+        note: "Initial deposit"
+      });
+
+      // Registra anche la spesa nel wallet (uscita dal conto collegato).
+      // wallet.add con type=0 nega già l'importo internamente, quindi passiamo il valore positivo.
+      const [y, m, d] = startDate.split("-").map(Number);
+      wallet.add(initialAmount, "📈 Investimenti", `→ ${name} (deposit account opening)`, y, m, d, linkedConto, 0);
+      wallet.save();
+    }
+
+    depositAccounts.push(newDep);
+    saveDepositAccounts();
+
+    closeModal("modal-add-deposit");
+    renderInvestmentsPage();
+    showToast(`Account "${name}" created successfully!`);
+  });
+
+  // ——— Conferma trasferimento da/verso conto deposito ———
+  document.getElementById("btn-deposit-transfer").addEventListener("click", () => {
+    const depId = parseInt(document.getElementById("dep-transfer-account").value);
+    const direction = document.getElementById("dep-transfer-direction").value; // "in" o "out"
+    const amount = parseFloat(document.getElementById("dep-transfer-amount").value);
+    const date = document.getElementById("dep-transfer-date").value;
+    const note = document.getElementById("dep-transfer-note").value.trim();
+
+    // Validazione input
+    if (isNaN(depId)) return showToast("Please select a deposit account.", "error");
+    if (isNaN(amount) || amount <= 0) return showToast("Please enter a valid amount.", "error");
+    if (!date) return showToast("Please enter the transfer date.", "error");
+
+    const dep = depositAccounts.find(d => d.id === depId);
+    if (!dep) return showToast("Deposit account not found.", "error");
+
+    // Se si sta prelevando, verifica che il saldo sia sufficiente
+    if (direction === "out") {
+      const currentBal = calcDepositBalance(dep);
+      if (amount > currentBal) {
+        return showToast(`Insufficient balance. Available: ${currentBal.toFixed(2)} €`, "error");
+      }
+    }
+
+    // Calcola il nuovo ID per il movimento interno
+    const newMovId = dep.transactions.length > 0
+      ? Math.max(...dep.transactions.map(t => t.id)) + 1
+      : 0;
+
+    // Aggiungi il movimento al conto deposito
+    dep.transactions.push({
+      id: newMovId,
+      date,
+      type: direction === "in" ? "deposito" : "prelievo",
+      amount,
+      note: note || (direction === "in" ? "Transfer in" : "Withdrawal")
+    });
+
+    // Registra la transazione corrispondente nel wallet
+    const [y, m, d2] = date.split("-").map(Number);
+
+    if (direction === "in") {
+      // Uscita dal conto wallet (spesa classificata come investimento).
+      // wallet.add con type=0 nega già internamente, quindi passiamo l'importo positivo.
+      wallet.add(amount, "📈 Investimenti", `→ ${dep.name}`, y, m, d2, dep.linkedConto, 0);
+    } else {
+      // Entrata nel conto wallet (rimborso/prelievo)
+      wallet.add(amount, "📈 Investimenti", `← ${dep.name}`, y, m, d2, dep.linkedConto, 1);
+    }
+
+    wallet.save();
+    saveDepositAccounts();
+
+    closeModal("modal-deposit-transfer");
+
+    // Aggiorna sia la pagina investments che il dashboard
+    renderInvestmentsPage();
+    renderMainPage();
+
+    const dirLabel = direction === "in" ? "deposited into" : "withdrawn from";
+    showToast(`${amount.toFixed(2)} € ${dirLabel} "${dep.name}"`);
   });
 }

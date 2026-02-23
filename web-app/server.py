@@ -21,6 +21,8 @@ DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 TRANSACTIONS_CSV = os.path.join(DATA_DIR, "transactions.csv")
 CONFIG_JSON = os.path.join(DATA_DIR, "config.json")
 INVESTMENTS_JSON = os.path.join(DATA_DIR, "investments.json")
+# I conti deposito vengono salvati separatamente per chiarezza
+DEPOSITS_JSON = os.path.join(DATA_DIR, "deposits.json")
 
 CSV_FIELDS = ["ID", "Amount", "Category", "Description", "Y", "M", "D", "Conto", "Type"]
 
@@ -53,6 +55,7 @@ def api_load():
         "subscriptions": None,
         "commission": 0,
         "investments": [],
+        "depositAccounts": [],   # conti deposito (vincolati/liberi)
     }
 
     # Load transactions from CSV
@@ -91,6 +94,11 @@ def api_load():
     if os.path.exists(INVESTMENTS_JSON):
         with open(INVESTMENTS_JSON, "r", encoding="utf-8") as f:
             result["investments"] = json.load(f)
+
+    # Load deposit accounts from JSON
+    if os.path.exists(DEPOSITS_JSON):
+        with open(DEPOSITS_JSON, "r", encoding="utf-8") as f:
+            result["depositAccounts"] = json.load(f)
 
     return jsonify(result)
 
@@ -135,6 +143,11 @@ def api_save():
     investments = data.get("investments", [])
     with open(INVESTMENTS_JSON, "w", encoding="utf-8") as f:
         json.dump(investments, f, indent=2, ensure_ascii=False)
+
+    # Save deposit accounts to JSON (file separato: data/deposits.json)
+    deposit_accounts = data.get("depositAccounts", [])
+    with open(DEPOSITS_JSON, "w", encoding="utf-8") as f:
+        json.dump(deposit_accounts, f, indent=2, ensure_ascii=False)
 
     return jsonify({"status": "ok"})
 

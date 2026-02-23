@@ -733,6 +733,181 @@ tbody tr:last-child td {
   gap: 0.25rem;
 }
 
+/* ======================== CONTI DEPOSITO ======================== */
+
+/* Summary cards per la sezione depositi */
+.card-dep-balance { border-top: 3px solid var(--color-info); }
+.card-dep-balance .card-value { color: var(--color-info); }
+
+.card-dep-interest { border-top: 3px solid var(--color-success); }
+.card-dep-interest .card-value { color: var(--color-success); }
+
+.card-dep-rate { border-top: 3px solid var(--color-warning, #f59e0b); }
+.card-dep-rate .card-value { color: var(--color-warning, #f59e0b); }
+
+.card-dep-accounts { border-top: 3px solid var(--color-primary); }
+.card-dep-accounts .card-value { color: var(--color-primary); }
+
+/* Header della sezione con sottotitolo */
+.deposit-section-header {
+  margin-top: 2.5rem;
+  border-top: 1px solid var(--color-border);
+  padding-top: 1.5rem;
+}
+
+.deposit-title-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.section-subtitle {
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+  font-weight: 400;
+}
+
+/* Cella nome con conto collegato */
+.dep-name-cell { min-width: 140px; }
+
+.dep-linked-tag {
+  display: inline-block;
+  margin-left: 0.4rem;
+  padding: 0.1rem 0.45rem;
+  background: var(--color-primary-bg, rgba(99,102,241,0.1));
+  color: var(--color-primary);
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 500;
+}
+
+/* Badge tasso percentuale */
+.dep-rate-badge {
+  display: inline-block;
+  padding: 0.2rem 0.55rem;
+  background: rgba(16, 185, 129, 0.12);
+  color: var(--color-success);
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+/* Badge frequenza pagamento interessi */
+.dep-freq-badge {
+  display: inline-block;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 500;
+  text-transform: capitalize;
+}
+
+.dep-freq-daily      { background: #fce7f3; color: #9d174d; }
+.dep-freq-monthly    { background: #dbeafe; color: #1e40af; }
+.dep-freq-quarterly  { background: #f3e8ff; color: #6b21a8; }
+.dep-freq-semiannual { background: #ffedd5; color: #c2410c; }
+.dep-freq-annual     { background: var(--color-success-bg, rgba(16,185,129,0.1)); color: var(--color-success-text, #065f46); }
+
+/* Tasso netto (sotto al badge lordo) */
+.dep-rate-net {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+  margin-top: 0.15rem;
+}
+
+/* Tabella depositi — larghezza minima per scroll orizzontale */
+#deposits-table { min-width: 800px; }
+
+/* ——— Modal Storico Movimenti ——— */
+
+/* Cards riepilogo in cima al modal storico */
+.dep-history-summary { margin-bottom: 1rem; }
+
+.dep-history-cards {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+
+.dep-hist-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.6rem 1rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  min-width: 110px;
+}
+
+.dep-hist-label {
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.dep-hist-value {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.dep-hist-value.positive { color: var(--color-success); }
+
+/* Tabella movimenti nel modal storico */
+.dep-history-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.dep-history-table th,
+.dep-history-table td {
+  padding: 0.55rem 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.dep-history-table th {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+  background: var(--color-bg);
+}
+
+/* Badge tipo movimento (deposito / prelievo / interessi) */
+.dep-type-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+.dep-type-badge svg { width: 13px; height: 13px; }
+
+.dep-type-deposito  { background: rgba(16,185,129,0.12); color: var(--color-success); }
+.dep-type-prelievo  { background: rgba(239,68,68,0.1);   color: var(--color-danger); }
+.dep-type-interessi { background: rgba(245,158,11,0.12); color: #d97706; }
+
+/* Modal large per storico */
+.modal-lg { max-width: 680px; }
+
+/* Dark mode overrides per i badge frequenza */
+[data-theme="dark"] .dep-freq-daily      { background: #3b1a2e; color: #f9a8d4; }
+[data-theme="dark"] .dep-freq-monthly    { background: #1e2a4a; color: #93c5fd; }
+[data-theme="dark"] .dep-freq-quarterly  { background: #2e1a47; color: #c084fc; }
+[data-theme="dark"] .dep-freq-semiannual { background: #3b2510; color: #fdba74; }
+[data-theme="dark"] .dep-freq-annual     { background: rgba(16,185,129,0.15); color: #6ee7b7; }
+
 /* ======================== PIVOT TABLE ======================== */
 .pivot-table { width: 100%; border-collapse: collapse; }
 
