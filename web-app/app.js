@@ -2756,11 +2756,6 @@ function renderDepositAccountsSection() {
       <span class="card-label">Avg. Rate</span>
       <span class="card-value">${avgRate.toFixed(2)}%</span>
     </div>
-    <div class="card card-dep-accounts">
-      <div class="card-icon"><i data-lucide="landmark"></i></div>
-      <span class="card-label">Active Accounts</span>
-      <span class="card-value">${depositAccounts.length}</span>
-    </div>
   `;
 
   // ——— Tabella conti deposito ———

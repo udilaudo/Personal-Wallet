@@ -63,23 +63,32 @@ def api_load():
         with open(TRANSACTIONS_CSV, "r", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             for row in reader:
+                # Salta righe vuote (es. trailing newline nel CSV)
+                if not row.get("ID") or not row.get("Amount"):
+                    continue
+
                 conto = row.get("Conto", "")
                 if conto in ("", "None", "null"):
                     conto = None
 
-                result["transactions"].append(
-                    {
-                        "ID": int(row["ID"]),
-                        "Amount": float(row["Amount"]),
-                        "Category": row["Category"],
-                        "Description": row["Description"],
-                        "Y": int(row["Y"]),
-                        "M": int(row["M"]),
-                        "D": int(row["D"]),
-                        "Conto": conto,
-                        "Type": int(row["Type"]),
-                    }
-                )
+                try:
+                    result["transactions"].append(
+                        {
+                            "ID": int(row["ID"]),
+                            "Amount": float(row["Amount"]),
+                            "Category": row["Category"],
+                            "Description": row["Description"],
+                            "Y": int(row["Y"]),
+                            "M": int(row["M"]),
+                            "D": int(row["D"]),
+                            "Conto": conto,
+                            "Type": int(row["Type"]),
+                        }
+                    )
+                except (ValueError, KeyError) as e:
+                    # Stampa la riga problematica e l'errore senza bloccare il caricamento
+                    print(f"[WARN] Riga CSV ignorata — errore: {e}")
+                    print(f"[WARN] Riga: {dict(row)}")
 
     # Load config from JSON
     if os.path.exists(CONFIG_JSON):
