@@ -2205,6 +2205,22 @@ function calcDepositBalance(dep) {
 }
 
 /**
+ * Calcola il capitale netto investito nel conto deposito.
+ * Somma solo depositi e prelievi, escludendo gli interessi.
+ * Utile per mostrare "quanto ho messo" separatamente dagli interessi.
+ *
+ * @param {Object} dep - Oggetto conto deposito
+ * @returns {number} capitale netto investito (€)
+ */
+function calcInvested(dep) {
+  return dep.transactions.reduce((sum, t) => {
+    if (t.type === "deposito") return sum + t.amount;
+    if (t.type === "prelievo") return sum - t.amount;
+    return sum; // ignora gli interessi
+  }, 0);
+}
+
+/**
  * Calcola il tasso netto annuo dopo tassazione.
  * Formula: tassoNetto = tassoLordo * (1 - aliquota/100)
  *
@@ -2283,6 +2299,128 @@ function calcInterestForPeriod(dep, fromDateStr, toDateStr) {
 }
 
 /**
+ * Versione test di processInterestPayments per la frequenza "15sec".
+ * Ogni 15 secondi genera un tick di interesse pari a 1 giorno di interessi
+ * sul capitale investito (formula accelerata: non ha senso usare secondi reali
+ * con un tasso annuo, quindi ogni tick = 1/365 dell'interesse annuo).
+ *
+ * Usa timestamp ISO completi (con ore:minuti:secondi) come chiavi per i tick,
+ * così non si scontrano con le date "a giorno" degli altri movimenti.
+ *
+ * @param {Object} dep - Oggetto conto deposito (modificato in-place)
+ * @returns {boolean} true se sono stati aggiunti nuovi tick
+ */
+function processInterestPayments15sec(dep) {
+  const TICK_MS = 15000; // 15 secondi in millisecondi
+  const nowMs   = Date.now();
+  const startMs = new Date(dep.startDate).getTime();
+
+  // Genera tutti i tick scaduti: ogni 15s dall'apertura fino ad ora incluso.
+  // <= nowMs (non nowMs - TICK_MS) così il tick viene registrato nel momento esatto
+  // in cui scade, senza il ritardo di un ciclo che causava la capitalizzazione in ritardo.
+  const ticks = [];
+  let cur = startMs + TICK_MS;
+  while (cur <= nowMs) {
+    ticks.push(new Date(cur).toISOString());
+    cur += TICK_MS;
+  }
+
+  if (ticks.length === 0) return false;
+
+  // Tick già registrati come interessi (usa il timestamp completo come chiave)
+  const existing = new Set(
+    dep.transactions.filter(t => t.type === "interessi").map(t => t.date)
+  );
+
+  const missing = ticks.filter(t => !existing.has(t));
+  if (missing.length === 0) return false;
+
+  // Importo per tick = 1 giorno di interessi sul capitale investito
+  // (ogni tick "vale" un giorno per rendere il test visibile)
+  const invested    = calcInvested(dep);
+  const netRate     = calcNetRate(dep);
+  const amountPerTick = Math.round(invested * (netRate / 100) / 365 * 10000) / 10000;
+
+  if (amountPerTick <= 0) return false;
+
+  let changed = false;
+  for (const tick of missing) {
+    const newId = dep.transactions.length > 0
+      ? Math.max(...dep.transactions.map(t => t.id)) + 1
+      : 0;
+    dep.transactions.push({
+      id: newId,
+      date: tick,
+      type: "interessi",
+      amount: amountPerTick,
+      note: `Test tick (ogni 15s = 1 giorno) — ${dep.annualRate}% gross`
+    });
+    changed = true;
+  }
+
+  return changed;
+}
+
+/**
+ * Versione test di processInterestPayments per la frequenza "1min".
+ * Ogni minuto genera un tick di interesse pari a 1 giorno di interessi
+ * sul capitale investito (formula accelerata: ogni tick = 1/365 dell'interesse annuo).
+ *
+ * Usa timestamp ISO completi come chiavi per i tick, così non si scontrano
+ * con le date "a giorno" degli altri movimenti.
+ *
+ * @param {Object} dep - Oggetto conto deposito (modificato in-place)
+ * @returns {boolean} true se sono stati aggiunti nuovi tick
+ */
+function processInterestPayments1min(dep) {
+  const TICK_MS = 60000; // 1 minuto in millisecondi
+  const nowMs   = Date.now();
+  const startMs = new Date(dep.startDate).getTime();
+
+  // Genera tutti i tick scaduti: ogni 60s dall'apertura fino ad ora incluso.
+  const ticks = [];
+  let cur = startMs + TICK_MS;
+  while (cur <= nowMs) {
+    ticks.push(new Date(cur).toISOString());
+    cur += TICK_MS;
+  }
+
+  if (ticks.length === 0) return false;
+
+  // Tick già registrati come interessi (usa il timestamp completo come chiave)
+  const existing = new Set(
+    dep.transactions.filter(t => t.type === "interessi").map(t => t.date)
+  );
+
+  const missing = ticks.filter(t => !existing.has(t));
+  if (missing.length === 0) return false;
+
+  // Importo per tick = 1 giorno di interessi sul capitale investito
+  const invested      = calcInvested(dep);
+  const netRate       = calcNetRate(dep);
+  const amountPerTick = Math.round(invested * (netRate / 100) / 365 * 10000) / 10000;
+
+  if (amountPerTick <= 0) return false;
+
+  let changed = false;
+  for (const tick of missing) {
+    const newId = dep.transactions.length > 0
+      ? Math.max(...dep.transactions.map(t => t.id)) + 1
+      : 0;
+    dep.transactions.push({
+      id: newId,
+      date: tick,
+      type: "interessi",
+      amount: amountPerTick,
+      note: `Test tick (ogni 1min = 1 giorno) — ${dep.annualRate}% gross`
+    });
+    changed = true;
+  }
+
+  return changed;
+}
+
+/**
  * Registra automaticamente tutti i pagamenti di interessi scaduti ma non ancora
  * registrati come movimenti nel conto deposito (OPZIONE A: capitalizzazione).
  *
@@ -2303,6 +2441,15 @@ function processInterestPayments(dep) {
   // Non possiamo guadagnare interessi se non c'è nessun deposito
   const hasDeposit = dep.transactions.some(t => t.type === "deposito");
   if (!hasDeposit) return false;
+
+  // Ramo speciale per modalità test: delega alla funzione dedicata
+  if (dep.paymentFrequency === "15sec") {
+    return processInterestPayments15sec(dep);
+  }
+  // Ramo per modalità test al minuto
+  if (dep.paymentFrequency === "1min") {
+    return processInterestPayments1min(dep);
+  }
 
   const today = new Date(); today.setHours(0,0,0,0);
   const startDate = new Date(dep.startDate); startDate.setHours(0,0,0,0);
@@ -2387,6 +2534,50 @@ function processInterestPayments(dep) {
 function calcAccruedInterest(dep) {
   if (!dep.transactions.length) return 0;
 
+  // ——— Ramo speciale per modalità test a 15 secondi ———
+  if (dep.paymentFrequency === "15sec") {
+    const registered = dep.transactions
+      .filter(t => t.type === "interessi")
+      .reduce((sum, t) => sum + t.amount, 0);
+
+    // Calcola la quota maturata nel tick corrente (non ancora registrata)
+    const lastTx = dep.transactions
+      .filter(t => t.type === "interessi")
+      .sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+    const lastMs  = lastTx ? new Date(lastTx.date).getTime() : new Date(dep.startDate).getTime();
+    const elapsedMs = Date.now() - lastMs;
+
+    // Importo del tick corrente scalato per i secondi trascorsi (0→1 in 15s)
+    const invested      = calcInvested(dep);
+    const netRate       = calcNetRate(dep);
+    const amountPerTick = invested * (netRate / 100) / 365;
+    const partial       = amountPerTick * Math.min(elapsedMs / 15000, 1);
+
+    return registered + Math.max(0, partial);
+  }
+
+  // ——— Ramo speciale per modalità test al minuto ———
+  if (dep.paymentFrequency === "1min") {
+    const registered = dep.transactions
+      .filter(t => t.type === "interessi")
+      .reduce((sum, t) => sum + t.amount, 0);
+
+    // Calcola la quota maturata nel tick corrente (non ancora registrata)
+    const lastTx = dep.transactions
+      .filter(t => t.type === "interessi")
+      .sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+    const lastMs    = lastTx ? new Date(lastTx.date).getTime() : new Date(dep.startDate).getTime();
+    const elapsedMs = Date.now() - lastMs;
+
+    // Importo del tick corrente scalato per i secondi trascorsi (0→1 in 60s)
+    const invested      = calcInvested(dep);
+    const netRate       = calcNetRate(dep);
+    const amountPerTick = invested * (netRate / 100) / 365;
+    const partial       = amountPerTick * Math.min(elapsedMs / 60000, 1);
+
+    return registered + Math.max(0, partial);
+  }
+
   // Interessi già capitalizzati (registrati come movimenti)
   const registeredInterest = dep.transactions
     .filter(t => t.type === "interessi")
@@ -2418,6 +2609,28 @@ function calcAccruedInterest(dep) {
  */
 function calcNextInterestDate(dep) {
   if (!dep.startDate) return "—";
+
+  // Caso speciale: modalità test 15 secondi → mostra countdown preciso
+  if (dep.paymentFrequency === "15sec") {
+    const lastTx = dep.transactions
+      .filter(t => t.type === "interessi")
+      .sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+    const lastMs   = lastTx ? new Date(lastTx.date).getTime() : new Date(dep.startDate).getTime();
+    const nextMs   = lastMs + 15000;
+    const secsLeft = Math.max(0, Math.ceil((nextMs - Date.now()) / 1000));
+    return secsLeft === 0 ? "⚡ now" : `⚡ in ${secsLeft}s`;
+  }
+
+  // Caso speciale: modalità test al minuto → mostra countdown preciso in secondi
+  if (dep.paymentFrequency === "1min") {
+    const lastTx = dep.transactions
+      .filter(t => t.type === "interessi")
+      .sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+    const lastMs   = lastTx ? new Date(lastTx.date).getTime() : new Date(dep.startDate).getTime();
+    const nextMs   = lastMs + 60000;
+    const secsLeft = Math.max(0, Math.ceil((nextMs - Date.now()) / 1000));
+    return secsLeft === 0 ? "⏱ now" : `⏱ in ${secsLeft}s`;
+  }
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -2501,17 +2714,21 @@ function renderDepositAccountsSection() {
   const summaryDiv = document.getElementById("summary-deposits");
   if (!summaryDiv) return;
 
+  let totalInvested = 0;
   let totalBalance = 0;
   let totalInterest = 0;
   let weightedRate = 0;
   let weightSum = 0;
 
   depositAccounts.forEach(dep => {
-    const bal = calcDepositBalance(dep);
+    const invested = calcInvested(dep);
     const interest = calcAccruedInterest(dep);
+    // Current Balance = capitale investito + tutti gli interessi maturati (anche non ancora registrati)
+    const bal = invested + interest;
+    totalInvested += invested;
     totalBalance += bal;
     totalInterest += interest;
-    // Media pesata del tasso (peso = saldo)
+    // Media pesata del tasso (peso = saldo corrente)
     weightedRate += dep.annualRate * bal;
     weightSum += bal;
   });
@@ -2519,9 +2736,14 @@ function renderDepositAccountsSection() {
   const avgRate = weightSum > 0 ? weightedRate / weightSum : 0;
 
   summaryDiv.innerHTML = `
+    <div class="card card-dep-invested">
+      <div class="card-icon"><i data-lucide="piggy-bank"></i></div>
+      <span class="card-label">Total Invested</span>
+      <span class="card-value">${totalInvested.toFixed(2)} &euro;</span>
+    </div>
     <div class="card card-dep-balance">
       <div class="card-icon"><i data-lucide="vault"></i></div>
-      <span class="card-label">Total Deposited</span>
+      <span class="card-label">Current Balance</span>
       <span class="card-value">${totalBalance.toFixed(2)} &euro;</span>
     </div>
     <div class="card card-dep-interest">
@@ -2547,7 +2769,7 @@ function renderDepositAccountsSection() {
   tbody.innerHTML = "";
 
   if (depositAccounts.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="10" class="empty-msg">
+    tbody.innerHTML = `<tr><td colspan="11" class="empty-msg">
       No deposit accounts yet. Click "Add Account" to get started.
     </td></tr>`;
     lucide.createIcons();
@@ -2555,17 +2777,21 @@ function renderDepositAccountsSection() {
   }
 
   depositAccounts.forEach(dep => {
-    const balance = calcDepositBalance(dep);
+    const invested = calcInvested(dep);
     const interest = calcAccruedInterest(dep);
+    // Current Balance include tutto: capitale + interessi maturati (anche non ancora registrati)
+    const balance = invested + interest;
     const nextDate = calcNextInterestDate(dep);
 
-    // Badge colore per la frequenza (incluso giornaliero)
+    // Badge colore per la frequenza (incluso giornaliero e modalità test)
     const freqColors = {
-      giornaliero: "dep-freq-daily",
-      mensile: "dep-freq-monthly",
-      trimestrale: "dep-freq-quarterly",
-      semestrale: "dep-freq-semiannual",
-      annuale: "dep-freq-annual"
+      "15sec":      "dep-freq-test",
+      "1min":       "dep-freq-test",   // stessa classe del 15sec: modalità test
+      giornaliero:  "dep-freq-daily",
+      mensile:      "dep-freq-monthly",
+      trimestrale:  "dep-freq-quarterly",
+      semestrale:   "dep-freq-semiannual",
+      annuale:      "dep-freq-annual"
     };
     const freqClass = freqColors[dep.paymentFrequency] || "dep-freq-annual";
 
@@ -2584,7 +2810,8 @@ function renderDepositAccountsSection() {
         <span class="dep-rate-badge">${dep.annualRate.toFixed(2)}% gross</span>
         <small class="dep-rate-net">${netRate.toFixed(2)}% net (${taxRate}% tax)</small>
       </td>
-      <td><span class="dep-freq-badge ${freqClass}">${{ giornaliero: "Daily", mensile: "Monthly", trimestrale: "Quarterly", semestrale: "Semi-annual", annuale: "Annual" }[dep.paymentFrequency] || dep.paymentFrequency}</span></td>
+      <td><span class="dep-freq-badge ${freqClass}">${{ "15sec": "⚡ 15s test", "1min": "⏱ 1min test", giornaliero: "Daily", mensile: "Monthly", trimestrale: "Quarterly", semestrale: "Semi-annual", annuale: "Annual" }[dep.paymentFrequency] || dep.paymentFrequency}</span></td>
+      <td class="amount">${invested.toFixed(2)} &euro;</td>
       <td class="amount positive"><strong>${balance.toFixed(2)} &euro;</strong></td>
       <td class="amount positive">+${interest.toFixed(2)} &euro;</td>
       <td>${nextDate}</td>
@@ -2646,6 +2873,38 @@ function renderDepositAccountsSection() {
       showToast(`Account "${dep.name}" removed.`);
     });
   });
+
+  // ——— Auto-refresh per conti test (15sec o 1min) ———
+  // Se esiste almeno un conto in modalità test, avvia un intervallo che re-renderizza ogni secondo
+  // (per aggiornare il countdown "Next Payment" e capitalizzare i tick scaduti).
+  // L'intervallo viene fermato automaticamente quando non ci sono più conti test.
+  const hasTestAccount = depositAccounts.some(
+    d => d.paymentFrequency === "15sec" || d.paymentFrequency === "1min"
+  );
+  if (hasTestAccount) {
+    if (!window._deposit15secInterval) {
+      window._deposit15secInterval = setInterval(() => {
+        // Controlla se siamo ancora nella pagina investments
+        const investPage = document.getElementById("page-investments");
+        const isVisible  = investPage && investPage.classList.contains("active");
+        const stillHasTest = depositAccounts.some(
+          d => d.paymentFrequency === "15sec" || d.paymentFrequency === "1min"
+        );
+        if (!isVisible || !stillHasTest) {
+          clearInterval(window._deposit15secInterval);
+          window._deposit15secInterval = null;
+          return;
+        }
+        renderDepositAccountsSection();
+      }, 1000); // ogni secondo per countdown fluido
+    }
+  } else {
+    // Nessun conto test: ferma l'intervallo se era attivo
+    if (window._deposit15secInterval) {
+      clearInterval(window._deposit15secInterval);
+      window._deposit15secInterval = null;
+    }
+  }
 }
 
 /**
@@ -2692,7 +2951,7 @@ function openDepositHistoryModal(depId) {
       </div>
       <div class="dep-hist-card">
         <span class="dep-hist-label">Payment</span>
-        <span class="dep-hist-value">${{ giornaliero: "Daily", mensile: "Monthly", trimestrale: "Quarterly", semestrale: "Semi-annual", annuale: "Annual" }[dep.paymentFrequency] || dep.paymentFrequency}</span>
+        <span class="dep-hist-value">${{ "15sec": "⚡ 15s test", "1min": "⏱ 1min test", giornaliero: "Daily", mensile: "Monthly", trimestrale: "Quarterly", semestrale: "Semi-annual", annuale: "Annual" }[dep.paymentFrequency] || dep.paymentFrequency}</span>
       </div>
     </div>
   `;
@@ -2781,7 +3040,11 @@ function bindDepositAccountActions() {
     // Tasso di tassazione sugli interessi (default 26% — aliquota italiana)
     const taxRate = parseFloat(document.getElementById("dep-tax-rate").value) || 26;
     const paymentFrequency = document.getElementById("dep-frequency").value;
-    const startDate = document.getElementById("dep-start").value;
+    // Per le modalità test (15sec, 1min) usiamo il timestamp preciso di creazione come startDate,
+    // così i tick partono dal momento esatto in cui viene creato il conto.
+    const startDate = (paymentFrequency === "15sec" || paymentFrequency === "1min")
+      ? new Date().toISOString()
+      : document.getElementById("dep-start").value;
     const endDate = document.getElementById("dep-end").value;
     const linkedConto = document.getElementById("dep-linked-conto").value;
     const initialAmount = parseFloat(document.getElementById("dep-initial").value) || 0;
@@ -2851,9 +3114,11 @@ function bindDepositAccountActions() {
     const dep = depositAccounts.find(d => d.id === depId);
     if (!dep) return showToast("Deposit account not found.", "error");
 
-    // Se si sta prelevando, verifica che il saldo sia sufficiente
+    // Se si sta prelevando, verifica che il saldo sia sufficiente.
+    // Il saldo disponibile include il capitale investito + tutti gli interessi maturati
+    // (sia registrati che ancora in maturazione), coerentemente con il Current Balance mostrato.
     if (direction === "out") {
-      const currentBal = calcDepositBalance(dep);
+      const currentBal = calcInvested(dep) + calcAccruedInterest(dep);
       if (amount > currentBal) {
         return showToast(`Insufficient balance. Available: ${currentBal.toFixed(2)} €`, "error");
       }

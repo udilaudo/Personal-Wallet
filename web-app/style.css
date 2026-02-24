@@ -807,6 +807,8 @@ tbody tr:last-child td {
 .dep-freq-quarterly  { background: #f3e8ff; color: #6b21a8; }
 .dep-freq-semiannual { background: #ffedd5; color: #c2410c; }
 .dep-freq-annual     { background: var(--color-success-bg, rgba(16,185,129,0.1)); color: var(--color-success-text, #065f46); }
+/* Badge modalità test 15 secondi — giallo acceso */
+.dep-freq-test       { background: #fef9c3; color: #854d0e; font-weight: 700; }
 
 /* Tasso netto (sotto al badge lordo) */
 .dep-rate-net {
@@ -907,6 +909,7 @@ tbody tr:last-child td {
 [data-theme="dark"] .dep-freq-quarterly  { background: #2e1a47; color: #c084fc; }
 [data-theme="dark"] .dep-freq-semiannual { background: #3b2510; color: #fdba74; }
 [data-theme="dark"] .dep-freq-annual     { background: rgba(16,185,129,0.15); color: #6ee7b7; }
+[data-theme="dark"] .dep-freq-test       { background: #3b2e00; color: #fde047; }
 
 /* ======================== PIVOT TABLE ======================== */
 .pivot-table { width: 100%; border-collapse: collapse; }
