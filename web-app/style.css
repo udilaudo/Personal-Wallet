@@ -147,6 +147,8 @@ body {
 }
 
 .logo-icon svg { width: 20px; height: 20px; }
+/* Logo img: occupa tutto il contenitore e ha bordi arrotondati come il box */
+.logo-icon .logo-img { width: 36px; height: 36px; border-radius: var(--radius-sm); object-fit: cover; }
 
 .logo {
   font-size: 1.25rem;

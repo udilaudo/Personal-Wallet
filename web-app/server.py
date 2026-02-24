@@ -55,7 +55,7 @@ def api_load():
         "subscriptions": None,
         "commission": 0,
         "investments": [],
-        "depositAccounts": [],   # conti deposito (vincolati/liberi)
+        "depositAccounts": [],  # conti deposito (vincolati/liberi)
     }
 
     # Load transactions from CSV
@@ -166,9 +166,7 @@ def api_save():
 YAHOO_BASE = "https://query1.finance.yahoo.com/v8/finance/chart/"
 BORSA_ITALIANA_BASE = "https://www.borsaitaliana.it/borsa/obbligazioni/mot/"
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-}
+HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
 
 
 def fetch_yahoo(ticker):
@@ -204,7 +202,11 @@ def fetch_borsa_italiana(isin):
             price_raw = match.group(1).strip()
             # Italian format: 1.234,56 → remove dots, replace comma with dot
             price = float(price_raw.replace(".", "").replace(",", "."))
-            return {"price": price, "currency": "EUR", "source": f"borsaitaliana/{bond_type}"}
+            return {
+                "price": price,
+                "currency": "EUR",
+                "source": f"borsaitaliana/{bond_type}",
+            }
     return None
 
 
@@ -245,8 +247,12 @@ def api_price_history():
         return jsonify({"error": "Ticker required for price history"}), 400
 
     interval_map = {
-        "1mo": "1d", "3mo": "1d", "6mo": "1wk",
-        "1y": "1wk", "5y": "1mo", "max": "1mo"
+        "1mo": "1d",
+        "3mo": "1d",
+        "6mo": "1wk",
+        "1y": "1wk",
+        "5y": "1mo",
+        "max": "1mo",
     }
     interval = interval_map.get(range_, "1wk")
 
@@ -271,11 +277,9 @@ def api_price_history():
                 valid_ts.append(ts)
                 valid_prices.append(price)
 
-        return jsonify({
-            "timestamps": valid_ts,
-            "prices": valid_prices,
-            "currency": currency
-        })
+        return jsonify(
+            {"timestamps": valid_ts, "prices": valid_prices, "currency": currency}
+        )
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
