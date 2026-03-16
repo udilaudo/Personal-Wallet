@@ -50,8 +50,8 @@ let currentChartFiltered = null;
 let currentChartInvestment = null;
 let currentChartInvPie = null;
 let currentChartAccountsPie = null;
-// Riferimento al grafico del saldo giornaliero cumulativo
-let currentChartDailyBalance = null;
+// Mappa canvasId → istanza Chart per i Daily Balance (dashboard + analytics)
+const dailyBalanceChartInstances = {};
 
 let currentChartTypeMain = "pie-categories";
 let currentChartTypeFiltered = "pie-categories";
@@ -92,6 +92,9 @@ async function syncToBackend() {
         investments: investments,
         // Includiamo anche i conti deposito nel backup su backend
         depositAccounts: depositAccounts,
+        // Budget mensili per categoria e budget totale: salvati nel config.json
+        budgets: wallet.budgets || {},
+        totalBudget: wallet.totalBudget || 0,
       }),
     });
   } catch (e) {
@@ -112,6 +115,9 @@ async function loadFromBackend() {
     if (data.contiList) wallet.contiList = data.contiList;
     if (data.subscriptions) wallet.subscriptions = data.subscriptions;
     if (data.commission !== undefined) wallet.commission = data.commission;
+    // Ripristina i budget mensili e il budget totale dal backend se presenti
+    if (data.budgets) wallet.budgets = data.budgets;
+    if (data.totalBudget !== undefined) wallet.totalBudget = data.totalBudget;
     wallet.update();
     wallet.paySubscriptions();
 
@@ -253,6 +259,18 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Riflette lo stato iniziale di excludeSaldoMain sul bottone toggle
   document.getElementById("toggle-saldo-main").classList.toggle("active", excludeSaldoMain);
   bindImportExport();
+  bindBudgetActions();
+  // "View all" naviga ad Analytics e scrolla direttamente alla tabella Transactions
+  const viewAllBtn = document.getElementById("btn-view-all-tx");
+  if (viewAllBtn) viewAllBtn.addEventListener("click", () => {
+    navigateTo("analytics");
+    // setTimeout lascia il tempo a renderMainPage() di completare il render
+    // prima di scrollare all'elemento target
+    setTimeout(() => {
+      const tableCard = document.getElementById("transactions-table");
+      if (tableCard) tableCard.closest(".table-card").scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 80);
+  });
   bindInvestmentActions();
   bindDepositAccountActions(); // Binding per la sezione Conti Deposito
   bindMobileNav();
@@ -299,13 +317,17 @@ function navigateTo(page) {
   // Close mobile nav
   document.getElementById("mobile-nav-overlay").classList.add("hidden");
 
-  // Mostra il FAB solo sulla Dashboard (pagina principale delle transazioni)
-  // Su tutte le altre pagine è nascosto per non creare confusione
-  const fab = document.getElementById("fab-add");
-  if (page === "main") {
-    fab.classList.remove("hidden");
-  } else {
-    fab.classList.add("hidden");
+  // Mostra il FAB container sulla Dashboard e su Analytics
+  const fabContainer = document.getElementById("fab-container");
+  if (fabContainer) {
+    fabContainer.classList.toggle("hidden", page !== "main" && page !== "analytics");
+    // Chiudi il menu speed-dial se si cambia pagina
+    closeFabMenu();
+  }
+
+  // Se si naviga su Analytics, ri-renderizza i dati (grafici, tabella, filtri)
+  if (page === "analytics") {
+    renderMainPage();
   }
 }
 
@@ -345,9 +367,48 @@ function bindBottomNav() {
   });
 }
 
+/**
+ * closeFabMenu — chiude il menu speed-dial del FAB senza aprire modal.
+ */
+function closeFabMenu() {
+  const menu = document.getElementById("fab-menu");
+  const main = document.getElementById("fab-main");
+  if (menu) menu.classList.remove("fab-menu-open");
+  if (main) main.classList.remove("fab-open");
+}
+
+/**
+ * bindFAB — gestisce il FAB speed-dial:
+ *   click fab-main  → apre/chiude il mini-menu
+ *   click fab-add-tx  → apre modal Add Transaction
+ *   click fab-transfer → apre modal Transfer
+ *   click fuori dal container → chiude il menu
+ */
 function bindFAB() {
-  document.getElementById("fab-add").addEventListener("click", () => {
+  const fabMain    = document.getElementById("fab-main");
+  const fabMenu    = document.getElementById("fab-menu");
+  const fabAddTx   = document.getElementById("fab-add-tx");
+  const fabTransfer = document.getElementById("fab-transfer");
+
+  fabMain.addEventListener("click", () => {
+    const isOpen = fabMenu.classList.contains("fab-menu-open");
+    fabMenu.classList.toggle("fab-menu-open", !isOpen);
+    fabMain.classList.toggle("fab-open", !isOpen);
+  });
+
+  fabAddTx.addEventListener("click", () => {
+    closeFabMenu();
     openModal("modal-add");
+  });
+
+  fabTransfer.addEventListener("click", () => {
+    closeFabMenu();
+    openModal("modal-transfer");
+  });
+
+  // Click fuori dal fab-container chiude il menu
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest("#fab-container")) closeFabMenu();
   });
 }
 
@@ -397,6 +458,10 @@ function resetFilters() {
   document.getElementById("filter-date-to").value = "";
   document.querySelectorAll(".preset-btn").forEach(b => b.classList.remove("active"));
 
+  // Pulisci anche la barra di ricerca testuale
+  const searchInput = document.getElementById("tx-search");
+  if (searchInput) searchInput.value = "";
+
   // Re-renderizza la dashboard: nessun filtro = tutte le transazioni
   renderMainPage();
   showToast("Filters cleared — showing all data");
@@ -411,7 +476,9 @@ function hasActiveFilters() {
   const hasAccs = document.querySelectorAll("#filter-accounts input:checked").length > 0;
   const hasDateFrom = !!document.getElementById("filter-date-from").value;
   const hasDateTo = !!document.getElementById("filter-date-to").value;
-  return hasCats || hasAccs || hasDateFrom || hasDateTo;
+  // Considera attivo anche il campo di ricerca testuale
+  const hasSearch = !!(document.getElementById("tx-search")?.value.trim());
+  return hasCats || hasAccs || hasDateFrom || hasDateTo || hasSearch;
 }
 
 /**
@@ -464,6 +531,9 @@ function bindModals() {
   // Open modal buttons
   document.getElementById("btn-open-add").addEventListener("click", () => openModal("modal-add"));
   document.getElementById("btn-open-transfer").addEventListener("click", () => openModal("modal-transfer"));
+  // Pulsanti hero section (dashboard principale, fuori da Analytics)
+  document.getElementById("btn-open-add-hero").addEventListener("click", () => openModal("modal-add"));
+  document.getElementById("btn-open-transfer-hero").addEventListener("click", () => openModal("modal-transfer"));
   document.getElementById("btn-open-add-inv").addEventListener("click", () => openModal("modal-add-inv"));
   document.getElementById("btn-open-add-sub").addEventListener("click", () => openModal("modal-add-sub"));
   document.getElementById("btn-open-manual-price").addEventListener("click", () => openModal("modal-manual-price"));
@@ -548,6 +618,19 @@ function populateSelects() {
     });
   }
 
+  // Budget category select (nella pagina Settings)
+  const budgetCatSel = document.getElementById("budget-category");
+  if (budgetCatSel) {
+    budgetCatSel.innerHTML = "";
+    // Mostra solo le categorie di spesa (escludi "Entrate" e simili con emoji positivi)
+    wallet.categories.forEach(cat => {
+      const opt = document.createElement("option");
+      opt.value = cat;
+      opt.textContent = cat;
+      budgetCatSel.appendChild(opt);
+    });
+  }
+
   // Subscription select
   const subSelect = document.getElementById("remove-subscription");
   if (subSelect) {
@@ -561,6 +644,221 @@ function populateSelects() {
   }
 }
 
+// ======================== HERO SECTION ========================
+
+/**
+ * renderHeroSection — mostra il saldo totale e le statistiche del mese corrente
+ * rispetto al mese precedente. Usa sempre i dati non filtrati.
+ */
+function renderHeroSection() {
+  const heroBalance = document.getElementById("hero-balance");
+  const heroStats   = document.getElementById("hero-month-stats");
+  if (!heroBalance || !heroStats) return;
+
+  const now = new Date();
+  const thisYear  = now.getFullYear();
+  const thisMonth = now.getMonth() + 1;
+
+  // Calcola anno/mese precedente gestendo il caso gennaio → dicembre anno prima
+  const prevDate  = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const prevYear  = prevDate.getFullYear();
+  const prevMonth = prevDate.getMonth() + 1;
+
+  const thisTx = wallet.transactions.filter(t => t.Y === thisYear  && t.M === thisMonth);
+  const prevTx = wallet.transactions.filter(t => t.Y === prevYear  && t.M === prevMonth);
+
+  const thisIncome  = thisTx.filter(t => t.Type === 1).reduce((s, t) => s + t.Amount, 0);
+  const thisExpense = thisTx.filter(t => t.Type === 0).reduce((s, t) => s + Math.abs(t.Amount), 0);
+  const prevIncome  = prevTx.filter(t => t.Type === 1).reduce((s, t) => s + t.Amount, 0);
+  const prevExpense = prevTx.filter(t => t.Type === 0).reduce((s, t) => s + Math.abs(t.Amount), 0);
+
+  // Totale netto del mese: income − expenses (positivo = mese in attivo)
+  const thisTotal = thisIncome - thisExpense;
+  const prevTotal = prevIncome - prevExpense;
+
+  // Saldo totale (sempre aggiornato da wallet.update())
+  heroBalance.textContent = wallet.saldo.toFixed(2) + " €";
+  heroBalance.className   = "hero-balance " + (wallet.saldo >= 0 ? "positive" : "negative");
+
+  // Badge variazione percentuale rispetto al mese scorso
+  function varBadge(current, previous, higherIsBetter) {
+    if (previous <= 0) return "";
+    const pct = ((current - previous) / previous) * 100;
+    const arrow = pct >= 0 ? "↑" : "↓";
+    // Per le entrate: salire è buono. Per le spese: scendere è buono.
+    const isGood = higherIsBetter ? pct >= 0 : pct <= 0;
+    const cls    = isGood ? "hero-var-good" : "hero-var-bad";
+    return `<span class="${cls}">${arrow} ${Math.abs(pct).toFixed(0)}%</span>`;
+  }
+
+  const monthName = now.toLocaleString("it-IT", { month: "long" });
+
+  const totalSign  = thisTotal >= 0 ? "+" : "−";
+  const totalClass = thisTotal >= 0 ? "positive" : "negative";
+
+  // Differenza netto vs mese precedente in €: sempre leggibile indipendentemente dal segno
+  function netDiffBadge(current, previous) {
+    if (previous === 0 && current === 0) return "";
+    const diff = current - previous;
+    if (diff === 0) return "";
+    const arrow = diff > 0 ? "↑" : "↓";
+    // Migliorare = netto più alto (più positivo o meno negativo)
+    const cls   = diff > 0 ? "hero-var-good" : "hero-var-bad";
+    const sign  = diff > 0 ? "+" : "−";
+    return `<span class="${cls}">${arrow} ${sign}${Math.abs(diff).toFixed(2)} €</span>`;
+  }
+
+  heroStats.innerHTML = `
+    <div class="hero-stat">
+      <span class="hero-stat-label">Income (${monthName})</span>
+      <span class="hero-stat-value positive">+${thisIncome.toFixed(2)} €</span>
+      ${varBadge(thisIncome, prevIncome, true)}
+    </div>
+    <div class="hero-stat hero-stat-divider"></div>
+    <div class="hero-stat">
+      <span class="hero-stat-label">Expenses (${monthName})</span>
+      <span class="hero-stat-value negative">−${thisExpense.toFixed(2)} €</span>
+      ${varBadge(thisExpense, prevExpense, false)}
+    </div>
+    <div class="hero-stat hero-stat-divider"></div>
+    <div class="hero-stat">
+      <span class="hero-stat-label">Net (${monthName})</span>
+      <span class="hero-stat-value ${totalClass}">${totalSign}${Math.abs(thisTotal).toFixed(2)} €</span>
+      ${netDiffBadge(thisTotal, prevTotal)}
+    </div>
+  `;
+}
+
+// ======================== RECENT TRANSACTIONS ========================
+
+/**
+ * renderRecentTransactions — tabella transazioni del mese corrente nella dashboard.
+ * Stessa struttura visiva di Analytics (colonne complete + edit/delete).
+ * Supporta ricerca testuale via #dash-tx-search (debounce 150ms).
+ * Esclude saldi iniziali (Type 2 e 3).
+ */
+function renderRecentTransactions() {
+  const tbody = document.getElementById("recent-tx-body");
+  if (!tbody) return;
+
+  // Data corrente per filtrare per mese
+  const now = new Date();
+  const curY = now.getFullYear();
+  const curM = now.getMonth() + 1;
+
+  // Aggiorna titolo con nome mese corrente
+  const monthNames = ["January","February","March","April","May","June",
+                      "July","August","September","October","November","December"];
+  const titleEl = document.getElementById("recent-tx-title");
+  if (titleEl) titleEl.textContent = `${monthNames[curM - 1]} ${curY}`;
+
+  // Tutte le transazioni del mese corrente (escluse Type 2/3)
+  const monthTx = wallet.transactions.filter(
+    t => t.Type !== 2 && t.Type !== 3 && t.Y === curY && t.M === curM
+  );
+
+  // Funzione di render rows (usata anche dalla ricerca)
+  function renderRows(data) {
+    tbody.innerHTML = "";
+
+    if (data.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" class="empty-msg">No transactions for this month.</td></tr>';
+      return;
+    }
+
+    const typeLabels = { 0: "Expense", 1: "Income", 2: "Balance Out", 3: "Balance In", 4: "Transfer" };
+
+    for (const t of data) {
+      const tr = document.createElement("tr");
+      if (t.Type === 1 || t.Type === 3) tr.className = "row-income";
+      else if (t.Type === 4) tr.className = "row-transfer";
+
+      const dateStr = `${String(t.D).padStart(2,"0")}/${String(t.M).padStart(2,"0")}/${t.Y}`;
+      tr.innerHTML = `
+        <td class="amount ${t.Amount >= 0 ? "positive" : "negative"}">${t.Amount.toFixed(2)} &euro;</td>
+        <td>${t.Category}</td>
+        <td>${t.Description || "—"}</td>
+        <td>${dateStr}</td>
+        <td><span class="badge">${t.Conto || "—"}</span></td>
+        <td><span class="type-badge type-${t.Type}">${typeLabels[t.Type] || t.Type}</span></td>
+        <td>
+          <div class="row-actions">
+            ${t.Type !== 4 ? `<button class="btn-icon" title="Edit" data-dash-edit-id="${t.ID}"><i data-lucide="pencil"></i></button>` : ""}
+            <button class="btn-icon btn-icon-danger" title="Delete" data-dash-delete-id="${t.ID}"><i data-lucide="trash-2"></i></button>
+          </div>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    }
+
+    lucide.createIcons();
+
+    // Bind edit
+    tbody.querySelectorAll("[data-dash-edit-id]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const t = wallet.transactions.find(t => t.ID === parseInt(btn.dataset.dashEditId));
+        if (!t) return;
+        document.getElementById("edit-id").value = t.ID;
+        document.getElementById("edit-type").value = t.Type === 1 ? "1" : "0";
+        document.getElementById("edit-amount").value = Math.abs(t.Amount).toFixed(2);
+        document.getElementById("edit-category").value = t.Category;
+        document.getElementById("edit-description").value = t.Description;
+        document.getElementById("edit-account").value = t.Conto;
+        document.getElementById("edit-date").value = `${t.Y}-${String(t.M).padStart(2,"0")}-${String(t.D).padStart(2,"0")}`;
+        openModal("modal-edit");
+      });
+    });
+
+    // Bind delete
+    tbody.querySelectorAll("[data-dash-delete-id]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const id = parseInt(btn.dataset.dashDeleteId);
+        const t = wallet.transactions.find(t => t.ID === id);
+        document.getElementById("delete-id").value = id;
+        // Mostra descrizione nel modal di conferma se disponibile
+        const descEl = document.getElementById("delete-description");
+        if (descEl) descEl.textContent = t ? (t.Description || t.Category) : id;
+        openModal("modal-confirm-delete");
+      });
+    });
+  }
+
+  // Prima render senza filtro ricerca
+  renderRows(monthTx);
+
+  // Ricerca testuale con debounce 150ms
+  const searchInput = document.getElementById("dash-tx-search");
+  if (searchInput) {
+    // Svuota ricerca ad ogni re-render (cambio mese, salvataggio, ecc.)
+    searchInput.value = "";
+
+    // Rimuove il vecchio listener (rimpiazza il nodo per sicurezza)
+    const fresh = searchInput.cloneNode(true);
+    searchInput.parentNode.replaceChild(fresh, searchInput);
+
+    let debounceTimer;
+    fresh.addEventListener("input", () => {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        const q = fresh.value.trim().toLowerCase();
+        const filtered = q
+          ? monthTx.filter(t =>
+              (t.Description || "").toLowerCase().includes(q) ||
+              t.Category.toLowerCase().includes(q)
+            )
+          : monthTx;
+        renderRows(filtered);
+      }, 150);
+    });
+  }
+}
+
+// ======================== ANALYTICS PAGE ========================
+// La sezione Analytics è ora una pagina di navigazione dedicata (#page-analytics).
+// Il binding del pulsante "View all" avviene direttamente in DOMContentLoaded
+// tramite: viewAllBtn.addEventListener("click", () => navigateTo("analytics"))
+// navigateTo("analytics") chiama renderMainPage() per aggiornare dati e grafici.
+
 // ======================== RENDER MAIN PAGE ========================
 
 /**
@@ -571,6 +869,12 @@ function populateSelects() {
  */
 function renderMainPage() {
   wallet.sortAndReindex();
+
+  // --- Hero section: saldo totale + stats mese corrente (dati non filtrati) ---
+  renderHeroSection();
+
+  // --- Recent transactions: ultime 7 senza filtri ---
+  renderRecentTransactions();
 
   // Ottieni i dati in base ai filtri attivi (filtri vuoti = tutte le transazioni)
   const data = getFilteredData();
@@ -612,6 +916,10 @@ function renderMainPage() {
     }
   }
 
+  // Aggiorna il badge con il numero di transazioni mostrate
+  const txBadge = document.getElementById("tx-count-badge");
+  if (txBadge) txBadge.textContent = data.length;
+
   // Re-init Lucide for new icons
   lucide.createIcons();
 
@@ -651,6 +959,12 @@ function renderMainPage() {
 
   // --- Summary Cards (calcolate sui dati filtrati) ---
   const summary = Wallet.computeSummary(data);
+
+  // Calcolo Net Worth: saldo wallet + valore investimenti a prezzi correnti + saldo conti deposito
+  const investmentsValue = investments.reduce((sum, inv) => sum + (inv.currentPrice || 0) * inv.quantity, 0);
+  const depositsValue    = depositAccounts.reduce((sum, dep) => sum + calcDepositBalance(dep), 0);
+  const netWorth         = wallet.saldo + investmentsValue + depositsValue;
+
   const summaryDiv = document.getElementById("summary-main");
   summaryDiv.innerHTML = `
     <div class="card card-total">
@@ -668,10 +982,15 @@ function renderMainPage() {
       <span class="card-label">Expenses</span>
       <span class="card-value">${summary.totalOutcome.toFixed(2)} &euro;</span>
     </div>
-    <div class="card card-count">
-      <div class="card-icon"><i data-lucide="hash"></i></div>
-      <span class="card-label">Transactions</span>
-      <span class="card-value">${summary.count}</span>
+    <div class="card card-networth">
+      <div class="card-icon"><i data-lucide="landmark"></i></div>
+      <span class="card-label">Net Worth</span>
+      <span class="card-value">${netWorth.toFixed(2)} &euro;</span>
+      <span class="card-sub">
+        wallet ${wallet.saldo.toFixed(0)}&euro;
+        &nbsp;·&nbsp; inv ${investmentsValue.toFixed(0)}&euro;
+        &nbsp;·&nbsp; dep ${depositsValue.toFixed(0)}&euro;
+      </span>
     </div>
   `;
 
@@ -698,9 +1017,17 @@ function renderMainPage() {
   // Il grafico si aggiorna ogni volta che cambiano i dati o i filtri
   createChart("chart-main", currentChartTypeMain, data, excludeSaldoMain);
 
-  // --- Daily Balance Chart (usa tutte le transazioni, non filtrate) ---
-  // Mostra il saldo cumulativo giornaliero nel tempo sull'intera storia del wallet
-  renderDailyBalanceChart();
+  // --- Daily Balance Chart: Analytics page (usa tutte le transazioni, non filtrate) ---
+  renderDailyBalanceChart("chart-daily-balance");
+
+  // --- Daily Balance Chart: Dashboard (stesso grafico, canvas separato) ---
+  renderDailyBalanceChart("chart-daily-balance-dash");
+
+  // --- Account Overview list in Analytics (saldi affiancati al pie chart) ---
+  renderAccountsOverview();
+
+  // --- Budget Overview (usa il mese corrente, non i dati filtrati) ---
+  renderBudgetSection();
 
   // Aggiorna badge e tasto reset in base allo stato dei filtri
   updateFilterBadge();
@@ -764,11 +1091,37 @@ function bindMainActions() {
     const id = parseInt(document.getElementById("delete-id").value);
     const t = wallet.transactions.find(t => t.ID === id);
     const isTransfer = t && t.Type === 4;
+
+    // Snapshot delle transazioni da eliminare, necessario per il ripristino con Undo.
+    // Per un giroconto salviamo l'intera coppia Type 4 (stessa descrizione/data).
+    let snapshot;
+    if (isTransfer) {
+      snapshot = wallet.transactions.filter(tr =>
+        tr.ID === id ||
+        (tr.Type === 4 && tr.Description === t.Description &&
+         tr.Y === t.Y && tr.M === t.M && tr.D === t.D)
+      ).map(tr => ({ ...tr })); // deep copy
+    } else {
+      snapshot = t ? [{ ...t }] : [];
+    }
+
     const success = isTransfer ? wallet.deleteTransferGroup(id) : wallet.delete(id);
     if (success) {
       renderMainPage();
       closeModal("modal-confirm-delete");
-      showToast(isTransfer ? "Transfer deleted!" : "Transaction deleted!");
+
+      // Toast con Undo: se cliccato entro 5s, reinserisce le transazioni salvate
+      showToastWithUndo(
+        isTransfer ? "Transfer deleted!" : "Transaction deleted!",
+        () => {
+          // Reinserisce le transazioni snapshot nell'array e ricalcola
+          snapshot.forEach(tr => wallet.transactions.push(tr));
+          wallet.sortAndReindex();
+          wallet.update();
+          wallet.save();
+          renderMainPage();
+        }
+      );
     } else {
       showToast("Transaction not found", "error");
     }
@@ -898,6 +1251,315 @@ function bindFilterActions() {
     });
     renderMainPage();
   });
+
+  // --- Ricerca testuale: aggiorna la tabella in tempo reale (debounce 150ms) ---
+  const txSearch = document.getElementById("tx-search");
+  if (txSearch) {
+    let searchTimeout;
+    txSearch.addEventListener("input", () => {
+      // Piccolo debounce per non ri-renderizzare ad ogni tasto su testi lunghi
+      clearTimeout(searchTimeout);
+      searchTimeout = setTimeout(() => {
+        updateFilterBadge();
+        renderMainPage();
+      }, 150);
+    });
+  }
+}
+
+// ======================== BUDGET ========================
+
+/**
+/**
+ * calcNetSpentCurrentMonth — calcola la spesa netta per categoria nel mese corrente.
+ *
+ * Logica:
+ *   1. Considera solo le categorie che hanno almeno una spesa (Type 0) quel mese.
+ *   2. Per quelle categorie, sottrae le entrate (Type 1) della stessa categoria
+ *      nello stesso mese (es. rimborsi, restituzioni).
+ *   3. Esclude la categoria Investimenti (spese di investimento non sono "spese correnti").
+ *   4. Il netto non può scendere sotto 0 (se ti rimborsano più di quanto hai speso,
+ *      la spesa netta è 0, non negativa).
+ *
+ * @returns {Object} mappa { "categoria": spesaNetta } con tutti i valori >= 0
+ */
+function calcNetSpentCurrentMonth() {
+  const now = new Date();
+  const currentMonth = now.getMonth() + 1;
+  const currentYear = now.getFullYear();
+
+  // Identifica il nome della categoria investimenti (cerca "investimenti" case-insensitive)
+  // così funziona sia con emoji che senza
+  const investCat = wallet.categories.find(c => c.toLowerCase().includes("investimenti")) || "";
+
+  // Tutte le transazioni del mese corrente (escludi giroconti Type 4)
+  const monthTx = wallet.transactions.filter(t =>
+    t.Y === currentYear && t.M === currentMonth && t.Type !== 4
+  );
+
+  // Step 1: trova le categorie con almeno una spesa (Type 0), esclusa la categoria Investimenti
+  const catsWithExpenses = new Set(
+    monthTx
+      .filter(t => t.Type === 0 && t.Category !== investCat)
+      .map(t => t.Category)
+  );
+
+  // Step 2: per ogni categoria con spese, calcola netto = spese - rimborsi (Type 1)
+  const netByCategory = {};
+  for (const cat of catsWithExpenses) {
+    const expenses = monthTx
+      .filter(t => t.Type === 0 && t.Category === cat)
+      .reduce((sum, t) => sum + Math.abs(t.Amount), 0);
+
+    // Entrate della stessa categoria nello stesso mese (rimborsi/restituzioni)
+    const refunds = monthTx
+      .filter(t => t.Type === 1 && t.Category === cat)
+      .reduce((sum, t) => sum + t.Amount, 0);
+
+    // La spesa netta non può essere negativa
+    netByCategory[cat] = Math.max(expenses - refunds, 0);
+  }
+
+  return netByCategory;
+}
+
+/**
+ * renderBudgetSection — renderizza le barre di avanzamento budget nella Dashboard.
+ * Usa sempre il mese corrente (non i filtri attivi) per mostrare lo stato reale.
+ * Se nessun budget è impostato, la sezione rimane nascosta.
+ */
+function renderBudgetSection() {
+  const section = document.getElementById("budget-overview-section");
+  const barsDiv = document.getElementById("budget-bars");
+  const monthLabel = document.getElementById("budget-month-label");
+  if (!section || !barsDiv) return;
+
+  const budgets = wallet.budgets || {};
+  const budgetEntries = Object.entries(budgets).filter(([, limit]) => limit > 0);
+  const totalBudget = wallet.totalBudget || 0;
+
+  // Nasconde la sezione se non ci sono né budget per categoria né budget totale
+  if (budgetEntries.length === 0 && totalBudget <= 0) {
+    section.classList.add("hidden");
+    return;
+  }
+  section.classList.remove("hidden");
+
+  // Etichetta mese corrente in italiano
+  const now = new Date();
+  if (monthLabel) {
+    monthLabel.textContent = now.toLocaleString("it-IT", { month: "long", year: "numeric" });
+  }
+
+  barsDiv.innerHTML = "";
+
+  // Calcola le spese nette per categoria (con logica rimborsi, senza Investimenti)
+  const netByCategory = calcNetSpentCurrentMonth();
+
+  // ——— Barra TOTALE (se impostata): mostrata per prima, più grande ———
+  if (totalBudget > 0) {
+    // Totale = somma di tutte le spese nette per le categorie con spese quel mese
+    const totalSpent = Object.values(netByCategory).reduce((sum, v) => sum + v, 0);
+
+    const totalPct = Math.min((totalSpent / totalBudget) * 100, 100);
+    const totalIsOver = totalSpent > totalBudget;
+
+    let totalBarClass = "budget-bar-ok";
+    if (totalIsOver || totalPct >= 90) totalBarClass = "budget-bar-danger";
+    else if (totalPct >= 70) totalBarClass = "budget-bar-warning";
+
+    const totalItem = document.createElement("div");
+    totalItem.className = "budget-item budget-item-total";
+    totalItem.innerHTML = `
+      <div class="budget-item-header">
+        <span class="budget-cat-name budget-total-label">Total spending</span>
+        <span class="budget-amounts ${totalIsOver ? "budget-over" : ""}">
+          ${totalSpent.toFixed(2)} / ${totalBudget.toFixed(2)} &euro;
+          ${totalIsOver
+            ? '<span class="budget-over-badge">Over!</span>'
+            : `(${(totalBudget - totalSpent).toFixed(2)} € left)`}
+        </span>
+      </div>
+      <div class="budget-bar-track budget-bar-track-total">
+        <div class="budget-bar-fill ${totalBarClass}" style="width: ${totalPct.toFixed(1)}%"></div>
+      </div>
+    `;
+    barsDiv.appendChild(totalItem);
+
+    // ——— Tooltip breakdown categorie al hover sulla barra totale ———
+    // Mostra una finestra flottante con le spese nette divise per categoria
+    const tooltip = document.getElementById("budget-breakdown-tooltip");
+    const barTrack = totalItem.querySelector(".budget-bar-track-total");
+
+    if (tooltip && barTrack && Object.keys(netByCategory).length > 0) {
+      // Costruisce il contenuto HTML del tooltip (lista categorie con spesa e %)
+      function buildBreakdownHTML() {
+        const sorted = Object.entries(netByCategory)
+          .filter(([, v]) => v > 0)
+          .sort(([, a], [, b]) => b - a);
+
+        const rows = sorted.map(([cat, spent]) => {
+          const pct = totalSpent > 0 ? ((spent / totalSpent) * 100).toFixed(1) : "0.0";
+          return `<div class="bbt-row">
+            <span class="bbt-cat">${cat}</span>
+            <span class="bbt-pct">${pct}%</span>
+            <span class="bbt-amount">${spent.toFixed(2)} €</span>
+          </div>`;
+        }).join("");
+
+        return `
+          <div class="bbt-header">Spending by category</div>
+          ${rows}
+          <div class="bbt-total">
+            <span>Total spent</span>
+            <span>${totalSpent.toFixed(2)} € / ${totalBudget.toFixed(2)} €</span>
+          </div>`;
+      }
+
+      barTrack.addEventListener("mouseenter", () => {
+        tooltip.innerHTML = buildBreakdownHTML();
+        tooltip.classList.remove("hidden");
+      });
+
+      barTrack.addEventListener("mousemove", (e) => {
+        // Posiziona il tooltip vicino al cursore con offset per non coprirlo
+        const x = e.clientX + 14;
+        const y = e.clientY - 10;
+        // Evita che esca dal bordo destro dello schermo
+        const maxX = window.innerWidth - tooltip.offsetWidth - 16;
+        tooltip.style.left = `${Math.min(x, maxX)}px`;
+        tooltip.style.top = `${y}px`;
+      });
+
+      barTrack.addEventListener("mouseleave", () => {
+        tooltip.classList.add("hidden");
+      });
+    }
+
+    // Divisore visivo se ci sono anche budget per categoria
+    if (budgetEntries.length > 0) {
+      const sep = document.createElement("hr");
+      sep.className = "budget-separator";
+      barsDiv.appendChild(sep);
+    }
+  }
+
+  // ——— Barre per categoria ———
+  budgetEntries.forEach(([cat, limit]) => {
+    // Usa la spesa netta calcolata dall'helper (già depurata da rimborsi)
+    const spent = netByCategory[cat] || 0;
+
+    const pct = limit > 0 ? Math.min((spent / limit) * 100, 100) : 0;
+    const isOver = spent > limit;
+
+    let barClass = "budget-bar-ok";
+    if (isOver || pct >= 90) barClass = "budget-bar-danger";
+    else if (pct >= 70) barClass = "budget-bar-warning";
+
+    const item = document.createElement("div");
+    item.className = "budget-item";
+    item.innerHTML = `
+      <div class="budget-item-header">
+        <span class="budget-cat-name">${cat}</span>
+        <span class="budget-amounts ${isOver ? "budget-over" : ""}">
+          ${spent.toFixed(2)} / ${limit.toFixed(2)} &euro;
+          ${isOver ? '<span class="budget-over-badge">Over!</span>' : `(${(100 - pct).toFixed(0)}% left)`}
+        </span>
+      </div>
+      <div class="budget-bar-track">
+        <div class="budget-bar-fill ${barClass}" style="width: ${pct.toFixed(1)}%"></div>
+      </div>
+    `;
+    barsDiv.appendChild(item);
+  });
+}
+
+/**
+ * renderSettingsBudgets — renderizza la lista dei budget impostati nella pagina Settings.
+ * Ogni riga mostra categoria, importo limite e pulsante per rimuovere il budget.
+ */
+function renderSettingsBudgets() {
+  const listEl = document.getElementById("budget-list");
+  if (!listEl) return;
+  listEl.innerHTML = "";
+
+  // Mostra il budget totale corrente in cima alla lista
+  const totalBudget = wallet.totalBudget || 0;
+  const totalRow = document.createElement("div");
+  totalRow.className = "budget-settings-row budget-settings-total-row";
+  totalRow.innerHTML = `
+    <span class="budget-settings-cat">Total monthly budget</span>
+    <span class="budget-settings-amount">${totalBudget > 0 ? totalBudget.toFixed(2) + " €/month" : "Not set"}</span>
+  `;
+  listEl.appendChild(totalRow);
+
+  const entries = Object.entries(wallet.budgets || {});
+  if (entries.length === 0) {
+    listEl.innerHTML = '<p class="settings-desc" style="padding: 0.25rem 0;">No budgets set yet.</p>';
+    return;
+  }
+
+  entries.forEach(([cat, limit]) => {
+    const row = document.createElement("div");
+    row.className = "budget-settings-row";
+    row.innerHTML = `
+      <span class="budget-settings-cat">${cat}</span>
+      <span class="budget-settings-amount">${Number(limit).toFixed(2)} &euro;/month</span>
+      <button class="btn-icon btn-icon-danger btn-icon-sm" data-remove-budget="${cat}" title="Remove budget">
+        <i data-lucide="trash-2"></i>
+      </button>
+    `;
+    // Bind rimozione budget inline (per ogni riga)
+    row.querySelector(`[data-remove-budget]`).addEventListener("click", () => {
+      delete wallet.budgets[cat];
+      wallet.save();
+      renderSettingsBudgets();
+      renderBudgetSection();
+      showToast(`Budget for "${cat}" removed`);
+    });
+    listEl.appendChild(row);
+  });
+
+  lucide.createIcons();
+}
+
+/**
+ * bindBudgetActions — collega il pulsante "Set Budget" nella pagina Settings.
+ * Legge categoria e importo, salva in wallet.budgets e aggiorna UI.
+ */
+function bindBudgetActions() {
+  // Salva budget per categoria
+  document.getElementById("btn-set-budget").addEventListener("click", () => {
+    const cat = document.getElementById("budget-category").value;
+    const amount = parseFloat(document.getElementById("budget-amount").value);
+
+    if (!cat) return showToast("Select a category", "error");
+    if (!amount || amount <= 0) return showToast("Enter a valid amount (> 0)", "error");
+
+    if (!wallet.budgets) wallet.budgets = {};
+    wallet.budgets[cat] = amount;
+    wallet.save();
+
+    document.getElementById("budget-amount").value = "";
+    renderSettingsBudgets();
+    renderBudgetSection();
+    showToast(`Budget for "${cat}": ${amount.toFixed(2)} €/month`);
+  });
+
+  // Salva budget mensile totale
+  document.getElementById("btn-set-total-budget").addEventListener("click", () => {
+    const amount = parseFloat(document.getElementById("total-budget-amount").value);
+    if (isNaN(amount) || amount < 0) return showToast("Enter a valid amount (≥ 0)", "error");
+
+    // amount = 0 significa "rimuovi il budget totale"
+    wallet.totalBudget = amount;
+    wallet.save();
+
+    document.getElementById("total-budget-amount").value = "";
+    renderSettingsBudgets();
+    renderBudgetSection();
+    showToast(amount > 0 ? `Total budget: ${amount.toFixed(2)} €/month` : "Total budget removed");
+  });
 }
 
 // ======================== SETTINGS PAGE ========================
@@ -960,6 +1622,9 @@ function renderSettingsPage() {
   // Commission
   const commEl = document.getElementById("current-commission");
   if (commEl) commEl.textContent = wallet.commission.toFixed(2);
+
+  // Budget mensili: aggiorna la lista nella card Budget
+  renderSettingsBudgets();
 }
 
 function bindSettingsActions() {
@@ -1357,6 +2022,32 @@ function renderAccountsPieChart() {
 }
 
 /**
+ * renderAccountsOverview — popola la lista saldi per conto nella pagina Analytics.
+ * Mostra ogni conto con nome, saldo in €, e la percentuale sul totale assoluto.
+ * Appare affiancata al pie chart conti nel blocco account-overview-card.
+ */
+/**
+ * renderAccountsOverview — popola i chip saldi nella pagina Analytics.
+ * Riusa gli stessi .balance-chip della dashboard per coerenza visiva.
+ */
+function renderAccountsOverview() {
+  const listEl = document.getElementById("account-overview-list");
+  if (!listEl) return;
+
+  listEl.innerHTML = "";
+
+  for (const [conto, saldo] of Object.entries(wallet.saldoConti)) {
+    const chip = document.createElement("div");
+    chip.className = "balance-chip";
+    chip.innerHTML = `
+      <span class="balance-chip-name">${conto.charAt(0).toUpperCase() + conto.slice(1)}</span>
+      <span class="balance-chip-value ${saldo >= 0 ? 'positive' : 'negative'}">${saldo.toFixed(2)} &euro;</span>
+    `;
+    listEl.appendChild(chip);
+  }
+}
+
+/**
  * renderDailyBalanceChart — crea il grafico a linee del saldo giornaliero cumulativo.
  *
  * Logica:
@@ -1368,14 +2059,20 @@ function renderAccountsPieChart() {
  *   - Il colore della linea è verde se il saldo finale è positivo, rosso altrimenti.
  *   - Fill verso y=0: evidenzia visivamente i periodi in positivo o negativo.
  */
-function renderDailyBalanceChart() {
-  // Distruggi il chart precedente per evitare memory leak e doppi canvas
-  if (currentChartDailyBalance) {
-    currentChartDailyBalance.destroy();
-    currentChartDailyBalance = null;
+/**
+ * renderDailyBalanceChart — disegna il grafico del saldo giornaliero cumulativo.
+ * Accetta un canvasId opzionale per poter essere usata sia in Analytics
+ * ("chart-daily-balance") sia nella Dashboard ("chart-daily-balance-dash").
+ * Le istanze Chart sono gestite dalla mappa dailyBalanceChartInstances.
+ */
+function renderDailyBalanceChart(canvasId = "chart-daily-balance") {
+  // Distruggi il chart precedente su questo canvas per evitare memory leak
+  if (dailyBalanceChartInstances[canvasId]) {
+    dailyBalanceChartInstances[canvasId].destroy();
+    delete dailyBalanceChartInstances[canvasId];
   }
 
-  const canvas = document.getElementById("chart-daily-balance");
+  const canvas = document.getElementById(canvasId);
   if (!canvas) return;
 
   // Usa TUTTE le transazioni (non filtrate) per il saldo storico reale
@@ -1404,7 +2101,7 @@ function renderDailyBalanceChart() {
   Chart.defaults.color = theme.textColor;
   Chart.defaults.borderColor = theme.gridColor;
 
-  currentChartDailyBalance = new Chart(ctx, {
+  dailyBalanceChartInstances[canvasId] = new Chart(ctx, {
     type: "line",
     data: {
       labels: formattedLabels,
@@ -1488,12 +2185,24 @@ function getFilteredData() {
   const selectedAccs = [];
   document.querySelectorAll("#filter-accounts input:checked").forEach(cb => selectedAccs.push(cb.value));
 
-  return wallet.filter({
+  // Applica prima i filtri strutturati (categorie, conti, date)
+  let result = wallet.filter({
     categories: selectedCats,
     accounts: selectedAccs,
     dateFrom: document.getElementById("filter-date-from").value || null,
     dateTo: document.getElementById("filter-date-to").value || null
   });
+
+  // Poi applica il filtro testuale: cerca in Description e Category (case-insensitive)
+  const searchText = (document.getElementById("tx-search")?.value || "").trim().toLowerCase();
+  if (searchText) {
+    result = result.filter(t =>
+      t.Description.toLowerCase().includes(searchText) ||
+      t.Category.toLowerCase().includes(searchText)
+    );
+  }
+
+  return result;
 }
 
 // ======================== IMPORT / EXPORT ========================
@@ -1544,6 +2253,51 @@ function showToast(message, type = "success") {
     toast.classList.remove("show");
     setTimeout(() => toast.remove(), 300);
   }, 3000);
+}
+
+/**
+ * Mostra un toast con un bottone "Undo" che rimane visibile per 5 secondi.
+ * Se l'utente clicca "Undo" prima che scompaia, viene eseguita la callback onUndo.
+ *
+ * @param {string} message - Testo del toast
+ * @param {Function} onUndo - Callback da eseguire se l'utente clicca Undo
+ */
+function showToastWithUndo(message, onUndo) {
+  const container = document.getElementById("toast-container");
+  const toast = document.createElement("div");
+  toast.className = "toast toast-success";
+
+  // Testo del messaggio
+  const span = document.createElement("span");
+  span.textContent = message;
+  toast.appendChild(span);
+
+  // Bottone Undo
+  const btn = document.createElement("button");
+  btn.className = "toast-undo-btn";
+  btn.textContent = "Undo";
+  toast.appendChild(btn);
+
+  container.appendChild(toast);
+  requestAnimationFrame(() => toast.classList.add("show"));
+
+  // Timeout per la rimozione automatica (5s, più lungo del toast normale)
+  let undone = false;
+  const timer = setTimeout(() => {
+    toast.classList.remove("show");
+    setTimeout(() => toast.remove(), 300);
+  }, 5000);
+
+  // Click su Undo: cancella il timer, esegue la callback e chiude il toast
+  btn.addEventListener("click", () => {
+    if (undone) return;
+    undone = true;
+    clearTimeout(timer);
+    onUndo();
+    toast.classList.remove("show");
+    setTimeout(() => toast.remove(), 300);
+    showToast("Action undone!");
+  });
 }
 
 // ======================== PIVOT TABLE ========================
@@ -1887,12 +2641,23 @@ function renderInvestmentsPage() {
       const inv = investments.find(i => i.id === id);
       if (!inv) return;
 
+      // Snapshot dell'investimento prima della rimozione, usato per l'Undo
+      const snapshot = { ...inv };
+
       // Rimuove l'investimento dall'array e salva
       investments = investments.filter(i => i.id !== id);
       saveInvestments();
       closeModal("modal-confirm-inv-remove");
       renderInvestmentsPage();
-      showToast(`${inv.name} removed!`);
+
+      // Toast con Undo: se cliccato entro 5s, reinserisce l'investimento
+      showToastWithUndo(`${inv.name} removed!`, () => {
+        investments.push(snapshot);
+        // Riordina per ID per mantenere l'ordine originale
+        investments.sort((a, b) => a.id - b.id);
+        saveInvestments();
+        renderInvestmentsPage();
+      });
     });
   }
 }

@@ -29,6 +29,11 @@
       <i data-lucide="layout-dashboard"></i>
       <span>Dashboard</span>
     </button>
+    <!-- Analytics: pagina dedicata con filtri, tabella completa e grafici -->
+    <button class="nav-btn" data-page="analytics">
+      <i data-lucide="bar-chart-2"></i>
+      <span>Analytics</span>
+    </button>
     <button class="nav-btn" data-page="investments">
       <i data-lucide="trending-up"></i>
       <span>Investments</span>
@@ -65,6 +70,7 @@
     <button class="mobile-nav-close" id="mobile-nav-close"><i data-lucide="x"></i></button>
     <nav class="mobile-nav-links">
       <button class="mobile-nav-btn active" data-page="main"><i data-lucide="layout-dashboard"></i> Dashboard</button>
+      <button class="mobile-nav-btn" data-page="analytics"><i data-lucide="bar-chart-2"></i> Analytics</button>
       <button class="mobile-nav-btn" data-page="investments"><i data-lucide="trending-up"></i> Investments</button>
       <button class="mobile-nav-btn" data-page="subscriptions"><i data-lucide="repeat"></i> Subscriptions</button>
       <button class="mobile-nav-btn" data-page="settings"><i data-lucide="settings"></i> Settings</button>
@@ -78,35 +84,149 @@
   <!-- ========== DASHBOARD ========== -->
   <section class="page" id="page-main">
 
-    <!-- ===== FILTER TOGGLE BAR =====
-         Sempre visibile in cima. Il pannello filtri si espande al click.
-         Il tasto "Reset" appare solo quando ci sono filtri attivi.
-    -->
+    <!-- ===== HERO: saldo totale grande + stats mese corrente vs precedente =====
+         Usa sempre i dati non filtrati per mostrare il quadro reale.
+         renderHeroSection() in app.js popola #hero-balance e #hero-month-stats. -->
+    <div class="hero-section">
+      <div class="hero-balance-block">
+        <span class="hero-label">Total Balance</span>
+        <span class="hero-balance" id="hero-balance">—</span>
+      </div>
+      <div class="hero-month-stats" id="hero-month-stats">
+        <!-- Popolato da renderHeroSection() -->
+      </div>
+    </div>
+
+    <!-- ===== ACCOUNT BALANCES CHIPS: saldi reali per conto, sempre aggiornati ===== -->
+    <div class="account-balances-row" id="account-balances"></div>
+
+    <!-- ===== BUDGET OVERVIEW: barre mensili per categoria + totale.
+         Nascosta automaticamente se nessun budget è impostato. ===== -->
+    <div id="budget-overview-section" class="budget-overview-section hidden">
+      <div class="table-card-header">
+        <h3>
+          <i data-lucide="target"></i> Monthly Budget
+          <!-- Icona info con tooltip CSS che spiega la logica di calcolo -->
+          <span class="budget-info-tooltip">
+            <i data-lucide="info" class="budget-info-icon"></i>
+            <span class="budget-info-box">
+              <strong>How spending is calculated:</strong><br>
+              Amounts shown are <em>net</em>: for each category, any refunds
+              (income of the same category in the same month) are subtracted.<br><br>
+              Example: spent 50 € on Restaurants, reimbursed 10 € →
+              net spending = 40 €.<br><br>
+              The <em>Investments</em> category is excluded from the total.<br>
+              Net spending never goes below zero.
+            </span>
+          </span>
+        </h3>
+        <span class="budget-month-label" id="budget-month-label"></span>
+      </div>
+      <div class="budget-bars" id="budget-bars"></div>
+    </div>
+
+    <!-- Tooltip flottante per il breakdown categorie sulla barra totale.
+         Posizionato e popolato via JS al mouseover sulla barra. -->
+    <div class="budget-breakdown-tooltip hidden" id="budget-breakdown-tooltip"></div>
+
+    <!-- ===== TRANSAZIONI MESE CORRENTE: tabella completa come Analytics,
+         filtrata per il mese in corso. Ricerca testuale integrata. ===== -->
+    <div class="recent-tx-card">
+      <div class="recent-tx-header">
+        <!-- Il titolo mostra il mese corrente, aggiornato da renderRecentTransactions() -->
+        <h3 id="recent-tx-title">Transactions</h3>
+        <div class="recent-tx-actions">
+          <button class="btn btn-primary btn-sm btn-with-icon" id="btn-open-add-hero">
+            <i data-lucide="plus"></i> Add
+          </button>
+          <button class="btn btn-outline btn-sm btn-with-icon" id="btn-open-transfer-hero">
+            <i data-lucide="arrow-right-left"></i> Transfer
+          </button>
+          <!-- "View all" naviga alla pagina Analytics -->
+          <button class="btn btn-outline btn-sm btn-with-icon" id="btn-view-all-tx">
+            <span>View all</span>
+            <i data-lucide="arrow-right"></i>
+          </button>
+        </div>
+      </div>
+      <!-- Ricerca testuale (stessa UX di Analytics) -->
+      <div class="tx-search-bar">
+        <i data-lucide="search" class="tx-search-icon"></i>
+        <input
+          type="search"
+          id="dash-tx-search"
+          class="tx-search-input"
+          placeholder="Search by description or category…"
+          autocomplete="off"
+        />
+      </div>
+      <!-- Tabella con header + scroll, stessa struttura di Analytics -->
+      <div class="table-scroll">
+        <table id="recent-tx-table">
+          <thead>
+            <tr>
+              <th>Amount</th>
+              <th>Category</th>
+              <th>Description</th>
+              <th>Date</th>
+              <th>Account</th>
+              <th>Type</th>
+              <th class="th-actions">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="recent-tx-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ===== DAILY BALANCE CHART: saldo cumulativo nel tempo, dati non filtrati.
+         Mostra l'andamento storico del saldo totale del wallet. ===== -->
+    <div class="chart-card" id="daily-balance-chart-container-dash">
+      <div class="chart-card-header">
+        <h3>Daily Balance</h3>
+      </div>
+      <div class="chart-wrapper">
+        <canvas id="chart-daily-balance-dash"></canvas>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- ========== ANALYTICS ========== -->
+  <!-- Pagina dedicata: filtri, tabella completa, grafici, pivot table.
+       Navigabile direttamente dal menu o da "View all" nella dashboard. -->
+  <section class="page hidden" id="page-analytics">
+
+    <!-- Account Overview: chip saldi (come dashboard) + pie chart affiancati.
+         Posizionato in cima, sopra i filtri, dato che i saldi non cambiano con i filtri. -->
+    <div class="account-overview-card">
+      <div class="account-overview-list" id="account-overview-list">
+        <!-- Popolato da renderMainPage() tramite renderAccountsOverview() -->
+      </div>
+      <div class="account-overview-pie">
+        <canvas id="chart-accounts-pie"></canvas>
+      </div>
+    </div>
+
+    <!-- Filter toggle bar -->
     <div class="filter-toggle-bar">
       <button class="btn btn-outline btn-with-icon btn-sm" id="btn-toggle-filters">
         <i data-lucide="sliders-horizontal"></i>
         <span>Filters</span>
-        <!-- Pallino colorato visibile quando i filtri sono attivi -->
         <span class="filter-active-dot hidden" id="filter-active-dot"></span>
       </button>
-      <!-- Reset: visibile solo quando i filtri sono attivi -->
       <button class="btn btn-outline btn-with-icon btn-sm hidden" id="btn-reset-filters">
         <i data-lucide="x"></i>
         <span>Reset filters</span>
       </button>
     </div>
 
-    <!-- ===== FILTER CONTROLS (collassabile) =====
-         Contiene solo i controlli di selezione (date, categorie, account).
-         I dati sotto si aggiornano su Apply. Nessun filtro = totale.
-    -->
+    <!-- Filter controls (collassabile) -->
     <div id="filter-controls" class="hidden">
       <div class="filter-bar">
         <div class="filter-bar-header">
           <span class="filter-bar-title">Filter data</span>
         </div>
-
-        <!-- Periodo con preset rapidi + date picker -->
         <div class="filter-section">
           <div class="filter-section-label">
             <i data-lucide="calendar"></i> Period
@@ -131,8 +251,6 @@
             </div>
           </div>
         </div>
-
-        <!-- Categorie selezionabili come chips -->
         <div class="filter-section">
           <div class="filter-section-label">
             <i data-lucide="tag"></i> Categories
@@ -143,8 +261,6 @@
           </div>
           <div class="filter-chips" id="filter-categories"></div>
         </div>
-
-        <!-- Account selezionabili come chips -->
         <div class="filter-section">
           <div class="filter-section-label">
             <i data-lucide="wallet"></i> Accounts
@@ -158,18 +274,10 @@
       </div>
     </div>
 
-    <!-- Summary Cards: riflettono i filtri attivi (nessun filtro = totale) -->
+    <!-- Summary cards (riflettono i filtri attivi) -->
     <div class="summary-cards" id="summary-main"></div>
 
-    <!-- Account Balances Row + Pie: saldi reali, sempre dati completi -->
-    <div class="account-section">
-      <div class="account-balances-row" id="account-balances"></div>
-      <div class="account-pie-wrapper">
-        <canvas id="chart-accounts-pie"></canvas>
-      </div>
-    </div>
-
-    <!-- Action Bar Transactions -->
+    <!-- Action bar: add/transfer + search -->
     <div class="action-bar">
       <h2 class="section-title">Transactions</h2>
       <div class="action-bar-right">
@@ -182,8 +290,23 @@
       </div>
     </div>
 
-    <!-- Transactions Table: mostra le transazioni filtrate (nessun filtro = tutte) -->
+    <!-- Ricerca testuale transazioni -->
+    <div class="tx-search-bar">
+      <i data-lucide="search" class="tx-search-icon"></i>
+      <input
+        type="search"
+        id="tx-search"
+        class="tx-search-input"
+        placeholder="Search by description or category…"
+        autocomplete="off"
+      />
+    </div>
+
+    <!-- Tabella transazioni completa (dati filtrati) -->
     <div class="table-card">
+      <div class="table-card-header">
+        <h3>Transactions <span id="tx-count-badge" class="tx-count-badge"></span></h3>
+      </div>
       <div class="table-scroll" id="main-table-scroll">
         <table id="transactions-table">
           <thead>
@@ -202,7 +325,7 @@
       </div>
     </div>
 
-    <!-- Pivot Table mensile: aggiornato con i dati filtrati -->
+    <!-- Pivot Table mensile (dati filtrati) -->
     <div class="table-card" id="pivot-container-main">
       <div class="table-card-header">
         <h3>Monthly Overview</h3>
@@ -215,7 +338,7 @@
       </div>
     </div>
 
-    <!-- Charts: aggiornati con i dati filtrati -->
+    <!-- Grafici (dati filtrati) -->
     <div class="chart-card">
       <div class="chart-card-header">
         <h3>Charts</h3>
@@ -234,9 +357,7 @@
       </div>
     </div>
 
-    <!-- Daily Balance Chart: saldo totale cumulativo giornaliero nel tempo.
-         Usa TUTTE le transazioni (non filtrate) per mostrare il vero saldo storico.
-         Asse X = data, Asse Y = saldo cumulativo in euro. -->
+    <!-- Daily Balance Chart (tutte le transazioni, non filtrate) -->
     <div class="chart-card" id="daily-balance-chart-container">
       <div class="chart-card-header">
         <h3>Daily Balance</h3>
@@ -246,10 +367,7 @@
       </div>
     </div>
 
-
   </section>
-
-  <!-- Analytics è ora integrata nella Dashboard (sezione "Filter & Analyze" collassabile) -->
 
   <!-- ========== INVESTMENTS ========== -->
   <section class="page hidden" id="page-investments">
@@ -464,6 +582,33 @@
       </div>
     </div>
 
+    <!-- Monthly Budgets -->
+    <div class="settings-card">
+      <div class="settings-card-header">
+        <div class="settings-card-title">
+          <i data-lucide="target"></i>
+          <h3>Monthly Budgets</h3>
+        </div>
+      </div>
+      <p class="settings-desc">Set monthly spending limits per category. Progress bars will appear in the Dashboard.</p>
+      <!-- Lista dei budget impostati: generata dinamicamente da renderSettingsBudgets() -->
+      <div id="budget-list" class="budget-settings-list"></div>
+      <div class="settings-card-footer">
+        <!-- Form budget totale mensile -->
+        <div class="inline-form">
+          <span class="inline-form-label">Total monthly</span>
+          <input type="number" id="total-budget-amount" min="0" step="50" placeholder="e.g. 1500 €" class="input input-sm budget-amount-input" />
+          <button class="btn btn-primary btn-sm" id="btn-set-total-budget">Save</button>
+        </div>
+        <!-- Form budget per categoria -->
+        <div class="inline-form">
+          <select id="budget-category" class="input input-sm"></select>
+          <input type="number" id="budget-amount" min="1" step="5" placeholder="Limit €" class="input input-sm budget-amount-input" />
+          <button class="btn btn-primary btn-sm" id="btn-set-budget">Set Budget</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Import/Export -->
     <div class="settings-card">
       <div class="settings-card-header">
@@ -485,10 +630,25 @@
 
 </main>
 
-<!-- ======================== FAB ======================== -->
-<button class="fab" id="fab-add" title="Add Transaction">
-  <i data-lucide="plus"></i>
-</button>
+<!-- ======================== FAB (speed-dial) ======================== -->
+<!-- Il FAB principale apre un mini-menu con Add Transaction e Transfer -->
+<div class="fab-container" id="fab-container">
+  <!-- Sub-pulsanti (nascosti, appaiono sopra il FAB al click) -->
+  <div class="fab-menu" id="fab-menu" aria-hidden="true">
+    <button class="fab-sub" id="fab-transfer" title="Transfer">
+      <i data-lucide="arrow-right-left"></i>
+      <span class="fab-sub-label">Transfer</span>
+    </button>
+    <button class="fab-sub" id="fab-add-tx" title="Add Transaction">
+      <i data-lucide="plus"></i>
+      <span class="fab-sub-label">Add</span>
+    </button>
+  </div>
+  <!-- Pulsante principale: ruota a × quando aperto -->
+  <button class="fab" id="fab-main" title="Actions">
+    <i data-lucide="plus" class="fab-icon-plus"></i>
+  </button>
+</div>
 
 <!-- ======================== MODALS ======================== -->
 
@@ -954,14 +1114,18 @@
     <i data-lucide="layout-dashboard"></i>
     <span>Dashboard</span>
   </button>
+  <!-- Analytics: aggiunto come pagina di navigazione dedicata -->
+  <button class="bottom-nav-btn" data-page="analytics">
+    <i data-lucide="bar-chart-2"></i>
+    <span>Analytics</span>
+  </button>
   <button class="bottom-nav-btn" data-page="investments">
     <i data-lucide="trending-up"></i>
     <span>Investments</span>
   </button>
-  <!-- Subscriptions sostituisce Analytics nella bottom nav -->
   <button class="bottom-nav-btn" data-page="subscriptions">
     <i data-lucide="repeat"></i>
-    <span>Subscriptions</span>
+    <span>Subs</span>
   </button>
   <button class="bottom-nav-btn" data-page="settings">
     <i data-lucide="settings"></i>

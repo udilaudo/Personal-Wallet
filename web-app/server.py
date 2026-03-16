@@ -56,6 +56,8 @@ def api_load():
         "commission": 0,
         "investments": [],
         "depositAccounts": [],   # conti deposito (vincolati/liberi)
+        "budgets": {},           # budget mensili per categoria { "categoria": importo_eur }
+        "totalBudget": 0,        # budget mensile globale (0 = non impostato)
     }
 
     # Load transactions from CSV
@@ -98,6 +100,10 @@ def api_load():
             result["contiList"] = config.get("contiList")
             result["subscriptions"] = config.get("subscriptions")
             result["commission"] = config.get("commission", 0)
+            # Carica i budget mensili per categoria (dizionario { "cat": importo })
+            result["budgets"] = config.get("budgets", {})
+            # Carica il budget mensile totale (numero, 0 = non impostato)
+            result["totalBudget"] = config.get("totalBudget", 0)
 
     # Load investments from JSON
     if os.path.exists(INVESTMENTS_JSON):
@@ -138,12 +144,14 @@ def api_save():
                 }
             )
 
-    # Save config to JSON
+    # Save config to JSON (include anche i budget mensili)
     config = {
         "categories": data.get("categories", []),
         "contiList": data.get("contiList", []),
         "subscriptions": data.get("subscriptions", {}),
         "commission": data.get("commission", 0),
+        "budgets": data.get("budgets", {}),
+        "totalBudget": data.get("totalBudget", 0),
     }
     with open(CONFIG_JSON, "w", encoding="utf-8") as f:
         json.dump(config, f, indent=2, ensure_ascii=False)
@@ -286,4 +294,6 @@ if __name__ == "__main__":
     os.makedirs(DATA_DIR, exist_ok=True)
     print(f"Data directory: {DATA_DIR}")
     print(f"Open http://localhost:5001 in your browser")
-    app.run(debug=True, port=8501, host="0.0.0.0")
+    # debug=False: disabilita la console interattiva di Werkzeug in caso di errore,
+    # che permetterebbe l'esecuzione di codice arbitrario sul server.
+    app.run(debug=False, port=8501, host="127.0.0.1")

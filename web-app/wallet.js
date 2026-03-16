@@ -37,6 +37,13 @@ class Wallet {
     // Commissione per i giroconti (tra conti non contanti)
     this.commission = user.commission || 0;
 
+    // Budget mensili per categoria: { "🛒 Spesa": 300, "🍸 Cibo fuori": 100, ... }
+    // Ogni budget rappresenta il limite di spesa mensile in euro per quella categoria.
+    this.budgets = { ...(user.budgets_list || {}) };
+
+    // Budget mensile totale: limite globale su tutte le spese del mese (0 = non impostato)
+    this.totalBudget = user.total_budget || 0;
+
     // Variabili di riepilogo calcolate da update()
     this.income = 0;        // Somma entrate (Type 1)
     this.outcome = 0;       // Somma uscite (Type 0), valore negativo
@@ -543,7 +550,10 @@ class Wallet {
       categories: this.categories,
       contiList: this.contiList,
       subscriptions: this.subscriptions,
-      commission: this.commission
+      commission: this.commission,
+      // Salviamo anche i budget mensili per categoria e il budget totale
+      budgets: this.budgets || {},
+      totalBudget: this.totalBudget || 0
     };
     localStorage.setItem("wallet_data", JSON.stringify(data));
   }
@@ -564,6 +574,9 @@ class Wallet {
       this.contiList = data.contiList || this.contiList;
       this.subscriptions = data.subscriptions || this.subscriptions;
       this.commission = data.commission || 0;
+      // Ripristina i budget mensili se presenti nel salvataggio
+      this.budgets = data.budgets || this.budgets || {};
+      this.totalBudget = data.totalBudget || 0;
       this.update();
       return true;
     } catch (e) {
