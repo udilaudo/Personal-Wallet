@@ -2977,35 +2977,144 @@ function bindInvestmentActions() {
 // ======================== CONTI DEPOSITO ========================
 
 /**
- * Calcola il saldo attuale di un conto deposito.
- * OPZIONE A (capitalizzazione): gli interessi registrati come movimenti "interessi"
- * vengono sommati al saldo, aumentando la base per i calcoli futuri (interesse composto).
+ * Genera tutte le date di pagamento interessi dall'apertura del conto fino a `end` incluso.
+ * Usata da calcDepositBalance e computeDepositTimeline per non duplicare la logica.
  *
- * @param {Object} dep - Oggetto conto deposito
- * @returns {number} saldo attuale inclusi interessi capitalizzati (€)
+ * @param {Object} dep   - Oggetto conto deposito
+ * @param {Date}   start - Data apertura (mezzanotte locale)
+ * @param {Date}   end   - Data limite (mezzanotte locale, inclusa)
+ * @returns {Date[]} array di Date ordinate cronologicamente
  */
-function calcDepositBalance(dep) {
-  return dep.transactions.reduce((sum, t) => {
-    if (t.type === "deposito")  return sum + t.amount;
-    if (t.type === "prelievo")  return sum - t.amount;
-    if (t.type === "interessi") return sum + t.amount; // capitalizzati → aumentano il saldo
-    return sum;
-  }, 0);
+function generateDepositPaymentDates(dep, start, end) {
+  const dates = [];
+
+  if (dep.paymentFrequency === "giornaliero") {
+    // Un tick al giorno: dal giorno dopo l'apertura fino a end incluso
+    let cur = new Date(start);
+    cur.setDate(cur.getDate() + 1);
+    while (cur <= end) {
+      dates.push(new Date(cur));
+      cur.setDate(cur.getDate() + 1);
+    }
+  } else {
+    // Frequenze mensili e derivate
+    const monthMap = { mensile: 1, trimestrale: 3, semestrale: 6, annuale: 12 };
+    const months = monthMap[dep.paymentFrequency] || 12;
+    let cur = new Date(start);
+    cur.setMonth(cur.getMonth() + months);
+    while (cur <= end) {
+      dates.push(new Date(cur));
+      cur = new Date(cur);
+      cur.setMonth(cur.getMonth() + months);
+    }
+  }
+
+  return dates;
 }
 
 /**
- * Calcola il capitale netto investito nel conto deposito.
- * Somma solo depositi e prelievi, escludendo gli interessi.
- * Utile per mostrare "quanto ho messo" separatamente dagli interessi.
+ * Calcola il saldo attuale del conto deposito usando capitalizzazione composta.
+ *
+ * Modello:
+ *   - INVESTED (capitale netto): somma depositi meno prelievi — NON cresce con gli interessi
+ *   - CURRENT BALANCE: ad ogni periodo di pagamento cresce secondo:
+ *       balance = balance * (1 + ratePerPeriod)
+ *     dove ratePerPeriod = annualNetRate / periodsPerYear
+ *   - Gli interessi NON vengono salvati come transazioni nel JSON:
+ *     vengono calcolati matematicamente al volo ogni volta.
+ *
+ * Esempio (giornaliero, 1.5% lordo, 26% tassa → 1.11% netto):
+ *   Giorno 0 (apertura): deposito 10€ → balance = 10
+ *   Giorno 1: balance = 10 * (1 + 0.0111/365) ≈ 10.000304
+ *   Giorno 2: balance = 10.000304 * (1 + 0.0111/365) ≈ 10.000608
+ *   ...
  *
  * @param {Object} dep - Oggetto conto deposito
- * @returns {number} capitale netto investito (€)
+ * @returns {number} saldo attuale (€)
+ */
+function calcDepositBalance(dep) {
+  // Tasso netto annuale come decimale (es. 1.5% lordo, 26% tassa → 0.01110)
+  const netAnnualRate = dep.annualRate * (1 - (dep.taxRate ?? 26) / 100) / 100;
+
+  // Numero di periodi per anno in base alla frequenza di pagamento
+  const periodsPerYear = {
+    giornaliero: 365,
+    mensile:     12,
+    trimestrale:  4,
+    semestrale:   2,
+    annuale:      1
+  }[dep.paymentFrequency] || 1;
+
+  // Tasso applicato ad ogni singolo periodo (es. daily → 0.01110/365 ≈ 0.0000304)
+  const ratePerPeriod = netAnnualRate / periodsPerYear;
+
+  // Considera solo i flussi di cassa (depositi e prelievi).
+  // Eventuali vecchie transazioni "interessi" salvate nel JSON vengono ignorate —
+  // gli interessi ora si calcolano al volo e non si salvano più.
+  const cashFlows = dep.transactions
+    .filter(t => t.type === "deposito" || t.type === "prelievo")
+    .sort((a, b) => new Date(a.date) - new Date(b.date));
+
+  if (cashFlows.length === 0) return 0;
+
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const startDate = new Date(dep.startDate); startDate.setHours(0, 0, 0, 0);
+
+  // Genera tutte le date di pagamento interessi dall'apertura ad oggi incluso
+  const paymentDates = generateDepositPaymentDates(dep, startDate, today);
+
+  // Costruisce la timeline unificata: cashflow (ordine 0) + interest tick (ordine 1)
+  // Stesso giorno → il cashflow viene processato PRIMA dell'interesse:
+  // un deposito effettuato oggi porta già interesse da domani, non da ieri.
+  const timeline = [];
+
+  cashFlows.forEach(t => {
+    const d = new Date(t.date); d.setHours(0, 0, 0, 0);
+    timeline.push({
+      ms:    d.getTime(),
+      order: 0,                // cashflow prima degli interessi nello stesso giorno
+      type:  "cashflow",
+      delta: t.type === "deposito" ? t.amount : -t.amount
+    });
+  });
+
+  paymentDates.forEach(d => {
+    timeline.push({
+      ms:    d.getTime(),
+      order: 1,                // interesse dopo i cashflow nello stesso giorno
+      type:  "interest"
+    });
+  });
+
+  // Ordina cronologicamente; parità → cashflow prima
+  timeline.sort((a, b) => a.ms - b.ms || a.order - b.order);
+
+  // Simula il saldo applicando ogni evento in ordine
+  let balance = 0;
+  for (const ev of timeline) {
+    if (ev.type === "cashflow") {
+      balance += ev.delta;                       // deposito o prelievo
+    } else {
+      balance *= (1 + ratePerPeriod);            // capitalizzazione composta
+    }
+  }
+
+  return Math.max(0, balance);
+}
+
+/**
+ * Calcola il capitale netto investito (depositi meno prelievi, senza interessi).
+ * Questa cifra rappresenta il denaro effettivamente versato/prelevato dall'utente
+ * e NON cresce con gli interessi — rimane stabile tra un deposito e l'altro.
+ *
+ * @param {Object} dep - Oggetto conto deposito
+ * @returns {number} capitale netto (€)
  */
 function calcInvested(dep) {
   return dep.transactions.reduce((sum, t) => {
     if (t.type === "deposito") return sum + t.amount;
     if (t.type === "prelievo") return sum - t.amount;
-    return sum; // ignora gli interessi
+    return sum; // ignora le eventuali vecchie "interessi" salvate
   }, 0);
 }
 
@@ -3014,436 +3123,129 @@ function calcInvested(dep) {
  * Formula: tassoNetto = tassoLordo * (1 - aliquota/100)
  *
  * @param {Object} dep - Oggetto conto deposito
- * @returns {number} tasso netto (percentuale)
+ * @returns {number} tasso netto (percentuale, es. 1.11)
  */
 function calcNetRate(dep) {
-  const taxRate = dep.taxRate ?? 26; // default 26% (aliquota italiana)
-  return dep.annualRate * (1 - taxRate / 100);
+  return dep.annualRate * (1 - (dep.taxRate ?? 26) / 100);
 }
 
 /**
- * Calcola gli interessi netti maturati in un intervallo di date specifico.
- * Tiene conto del saldo al inizio del periodo (inclusi eventuali interessi già
- * capitalizzati precedentemente) e di tutti i movimenti intermedi (depositi/prelievi).
- * Metodo: interessi semplici ponderati per i giorni con la formula
- *         capitale * tassoNetto/100 * giorni/365
- *
- * @param {Object} dep          - Oggetto conto deposito
- * @param {string} fromDateStr  - Data inizio periodo (YYYY-MM-DD, inclusa)
- * @param {string} toDateStr    - Data fine periodo (YYYY-MM-DD, esclusa)
- * @returns {number} interessi netti per il periodo (€)
- */
-function calcInterestForPeriod(dep, fromDateStr, toDateStr) {
-  const netRate = calcNetRate(dep);
-
-  const from = new Date(fromDateStr); from.setHours(0, 0, 0, 0);
-  const to   = new Date(toDateStr);   to.setHours(0, 0, 0, 0);
-
-  if (to <= from) return 0;
-
-  // Saldo al inizio del periodo: somma di TUTTE le transazioni fino a fromDate inclusa
-  // (questo include anche gli interessi capitalizzati dei periodi precedenti)
-  let balanceAtFrom = dep.transactions
-    .filter(t => { const d = new Date(t.date); d.setHours(0,0,0,0); return d <= from; })
-    .reduce((sum, t) => {
-      if (t.type === "deposito")  return sum + t.amount;
-      if (t.type === "prelievo")  return sum - t.amount;
-      if (t.type === "interessi") return sum + t.amount;
-      return sum;
-    }, 0);
-
-  // Movimenti INTERNI al periodo (dopo fromDate, prima di toDate)
-  // Non includiamo gli "interessi" intermedi perché non ne esistono ancora (li stiamo calcolando)
-  const movements = dep.transactions
-    .filter(t => {
-      if (t.type === "interessi") return false; // non ancora registrati
-      const d = new Date(t.date); d.setHours(0,0,0,0);
-      return d > from && d < to;
-    })
-    .sort((a, b) => new Date(a.date) - new Date(b.date));
-
-  // Calcolo interessi ponderati per i giorni
-  let totalInterest = 0;
-  let currentBalance = balanceAtFrom;
-  let prevDate = new Date(from);
-
-  for (const t of movements) {
-    const tDate = new Date(t.date); tDate.setHours(0,0,0,0);
-    const days = (tDate - prevDate) / (1000 * 60 * 60 * 24);
-    if (days > 0 && currentBalance > 0) {
-      totalInterest += currentBalance * (netRate / 100) * (days / 365);
-    }
-    if (t.type === "deposito") currentBalance += t.amount;
-    if (t.type === "prelievo") currentBalance -= t.amount;
-    prevDate = tDate;
-  }
-
-  // Segmento finale: dall'ultimo movimento a toDate
-  const remainingDays = (to - prevDate) / (1000 * 60 * 60 * 24);
-  if (remainingDays > 0 && currentBalance > 0) {
-    totalInterest += currentBalance * (netRate / 100) * (remainingDays / 365);
-  }
-
-  return Math.max(0, totalInterest);
-}
-
-/**
- * Versione test di processInterestPayments per la frequenza "15sec".
- * Ogni 15 secondi genera un tick di interesse pari a 1 giorno di interessi
- * sul capitale investito (formula accelerata: non ha senso usare secondi reali
- * con un tasso annuo, quindi ogni tick = 1/365 dell'interesse annuo).
- *
- * Usa timestamp ISO completi (con ore:minuti:secondi) come chiavi per i tick,
- * così non si scontrano con le date "a giorno" degli altri movimenti.
- *
- * @param {Object} dep - Oggetto conto deposito (modificato in-place)
- * @returns {boolean} true se sono stati aggiunti nuovi tick
- */
-function processInterestPayments15sec(dep) {
-  const TICK_MS = 15000; // 15 secondi in millisecondi
-  const nowMs   = Date.now();
-  const startMs = new Date(dep.startDate).getTime();
-
-  // Genera tutti i tick scaduti: ogni 15s dall'apertura fino ad ora incluso.
-  // <= nowMs (non nowMs - TICK_MS) così il tick viene registrato nel momento esatto
-  // in cui scade, senza il ritardo di un ciclo che causava la capitalizzazione in ritardo.
-  const ticks = [];
-  let cur = startMs + TICK_MS;
-  while (cur <= nowMs) {
-    ticks.push(new Date(cur).toISOString());
-    cur += TICK_MS;
-  }
-
-  if (ticks.length === 0) return false;
-
-  // Tick già registrati come interessi (usa il timestamp completo come chiave)
-  const existing = new Set(
-    dep.transactions.filter(t => t.type === "interessi").map(t => t.date)
-  );
-
-  const missing = ticks.filter(t => !existing.has(t));
-  if (missing.length === 0) return false;
-
-  // Importo per tick = 1 giorno di interessi sul capitale investito
-  // (ogni tick "vale" un giorno per rendere il test visibile)
-  const invested    = calcInvested(dep);
-  const netRate     = calcNetRate(dep);
-  const amountPerTick = Math.round(invested * (netRate / 100) / 365 * 10000) / 10000;
-
-  if (amountPerTick <= 0) return false;
-
-  let changed = false;
-  for (const tick of missing) {
-    const newId = dep.transactions.length > 0
-      ? Math.max(...dep.transactions.map(t => t.id)) + 1
-      : 0;
-    dep.transactions.push({
-      id: newId,
-      date: tick,
-      type: "interessi",
-      amount: amountPerTick,
-      note: `Test tick (ogni 15s = 1 giorno) — ${dep.annualRate}% gross`
-    });
-    changed = true;
-  }
-
-  return changed;
-}
-
-/**
- * Versione test di processInterestPayments per la frequenza "1min".
- * Ogni minuto genera un tick di interesse pari a 1 giorno di interessi
- * sul capitale investito (formula accelerata: ogni tick = 1/365 dell'interesse annuo).
- *
- * Usa timestamp ISO completi come chiavi per i tick, così non si scontrano
- * con le date "a giorno" degli altri movimenti.
- *
- * @param {Object} dep - Oggetto conto deposito (modificato in-place)
- * @returns {boolean} true se sono stati aggiunti nuovi tick
- */
-function processInterestPayments1min(dep) {
-  const TICK_MS = 60000; // 1 minuto in millisecondi
-  const nowMs   = Date.now();
-  const startMs = new Date(dep.startDate).getTime();
-
-  // Genera tutti i tick scaduti: ogni 60s dall'apertura fino ad ora incluso.
-  const ticks = [];
-  let cur = startMs + TICK_MS;
-  while (cur <= nowMs) {
-    ticks.push(new Date(cur).toISOString());
-    cur += TICK_MS;
-  }
-
-  if (ticks.length === 0) return false;
-
-  // Tick già registrati come interessi (usa il timestamp completo come chiave)
-  const existing = new Set(
-    dep.transactions.filter(t => t.type === "interessi").map(t => t.date)
-  );
-
-  const missing = ticks.filter(t => !existing.has(t));
-  if (missing.length === 0) return false;
-
-  // Importo per tick = 1 giorno di interessi sul capitale investito
-  const invested      = calcInvested(dep);
-  const netRate       = calcNetRate(dep);
-  const amountPerTick = Math.round(invested * (netRate / 100) / 365 * 10000) / 10000;
-
-  if (amountPerTick <= 0) return false;
-
-  let changed = false;
-  for (const tick of missing) {
-    const newId = dep.transactions.length > 0
-      ? Math.max(...dep.transactions.map(t => t.id)) + 1
-      : 0;
-    dep.transactions.push({
-      id: newId,
-      date: tick,
-      type: "interessi",
-      amount: amountPerTick,
-      note: `Test tick (ogni 1min = 1 giorno) — ${dep.annualRate}% gross`
-    });
-    changed = true;
-  }
-
-  return changed;
-}
-
-/**
- * Registra automaticamente tutti i pagamenti di interessi scaduti ma non ancora
- * registrati come movimenti nel conto deposito (OPZIONE A: capitalizzazione).
- *
- * Algoritmo:
- *   1. Genera tutte le date di pagamento passate (in base a frequenza e data apertura)
- *   2. Per ogni data non ancora presente come transazione "interessi":
- *      - Calcola l'interesse per quel periodo (da ultima data di pagamento a questa)
- *      - Aggiunge un movimento "interessi" all'array transactions del conto
- *   3. Restituisce true se almeno un nuovo movimento è stato aggiunto
- *      (così il chiamante può salvare)
- *
- * @param {Object} dep - Oggetto conto deposito (modificato in-place)
- * @returns {boolean} true se sono stati aggiunti nuovi pagamenti
- */
-function processInterestPayments(dep) {
-  if (!dep.startDate) return false;
-
-  // Non possiamo guadagnare interessi se non c'è nessun deposito
-  const hasDeposit = dep.transactions.some(t => t.type === "deposito");
-  if (!hasDeposit) return false;
-
-  // Ramo speciale per modalità test: delega alla funzione dedicata
-  if (dep.paymentFrequency === "15sec") {
-    return processInterestPayments15sec(dep);
-  }
-  // Ramo per modalità test al minuto
-  if (dep.paymentFrequency === "1min") {
-    return processInterestPayments1min(dep);
-  }
-
-  const today = new Date(); today.setHours(0,0,0,0);
-  const startDate = new Date(dep.startDate); startDate.setHours(0,0,0,0);
-
-  // ——— Genera tutte le date di pagamento passate ———
-  const paymentDates = [];
-
-  if (dep.paymentFrequency === "giornaliero") {
-    // Un pagamento al giorno, dal giorno dopo l'apertura fino a ieri
-    let cur = new Date(startDate);
-    cur.setDate(cur.getDate() + 1);
-    while (cur < today) { // "< today": oggi non è ancora scaduto
-      paymentDates.push(cur.toISOString().split("T")[0]);
-      cur = new Date(cur);
-      cur.setDate(cur.getDate() + 1);
-    }
-  } else {
-    const freqMonths = { mensile: 1, trimestrale: 3, semestrale: 6, annuale: 12 };
-    const months = freqMonths[dep.paymentFrequency] || 12;
-    let cur = new Date(startDate);
-    cur.setMonth(cur.getMonth() + months);
-    while (cur <= today) {
-      paymentDates.push(cur.toISOString().split("T")[0]);
-      cur = new Date(cur);
-      cur.setMonth(cur.getMonth() + months);
-    }
-  }
-
-  if (paymentDates.length === 0) return false;
-
-  // Date di pagamento già registrate (per evitare duplicati)
-  const existingDates = new Set(
-    dep.transactions.filter(t => t.type === "interessi").map(t => t.date)
-  );
-
-  const missing = paymentDates.filter(d => !existingDates.has(d));
-  if (missing.length === 0) return false;
-
-  let changed = false;
-  // Data di inizio del primo periodo: la data di apertura del conto
-  let prevDate = dep.startDate;
-
-  // Costruiamo la lista ordinata di TUTTE le date di pagamento per trovare i periodi corretti
-  const allPaymentDates = paymentDates; // già in ordine cronologico
-
-  for (const payDate of missing) {
-    // Il periodo di calcolo va dall'ultima data di pagamento precedente (o apertura) a questa
-    const idx = allPaymentDates.indexOf(payDate);
-    const periodFrom = idx > 0 ? allPaymentDates[idx - 1] : dep.startDate;
-
-    const interest = calcInterestForPeriod(dep, periodFrom, payDate);
-
-    // Registra solo se l'importo è significativo (> 0.001 €, evita "polvere")
-    if (interest > 0.001) {
-      const newId = dep.transactions.length > 0
-        ? Math.max(...dep.transactions.map(t => t.id)) + 1
-        : 0;
-
-      dep.transactions.push({
-        id: newId,
-        date: payDate,
-        type: "interessi",
-        amount: Math.round(interest * 100) / 100, // arrotonda al centesimo
-        note: `Capitalized interest (${{ giornaliero: "daily", mensile: "monthly", trimestrale: "quarterly", semestrale: "semi-annual", annuale: "annual" }[dep.paymentFrequency] || dep.paymentFrequency}) — ${dep.annualRate}% gross`
-      });
-
-      changed = true;
-    }
-  }
-
-  return changed;
-}
-
-/**
- * Calcola il totale degli interessi maturati (registrati + non ancora pagati).
- * = somma di tutti i movimenti "interessi" già registrati
- * + interessi maturati dal l'ultimo pagamento a oggi (non ancora registrati)
+ * Calcola gli interessi netti maturati fino ad oggi.
+ * Formula: interessi = saldo_corrente - capitale_netto_investito
  *
  * @param {Object} dep - Oggetto conto deposito
- * @returns {number} interessi netti totali (€)
+ * @returns {number} interessi maturati (€)
  */
 function calcAccruedInterest(dep) {
-  if (!dep.transactions.length) return 0;
-
-  // ——— Ramo speciale per modalità test a 15 secondi ———
-  if (dep.paymentFrequency === "15sec") {
-    const registered = dep.transactions
-      .filter(t => t.type === "interessi")
-      .reduce((sum, t) => sum + t.amount, 0);
-
-    // Calcola la quota maturata nel tick corrente (non ancora registrata)
-    const lastTx = dep.transactions
-      .filter(t => t.type === "interessi")
-      .sort((a, b) => new Date(b.date) - new Date(a.date))[0];
-    const lastMs  = lastTx ? new Date(lastTx.date).getTime() : new Date(dep.startDate).getTime();
-    const elapsedMs = Date.now() - lastMs;
-
-    // Importo del tick corrente scalato per i secondi trascorsi (0→1 in 15s)
-    const invested      = calcInvested(dep);
-    const netRate       = calcNetRate(dep);
-    const amountPerTick = invested * (netRate / 100) / 365;
-    const partial       = amountPerTick * Math.min(elapsedMs / 15000, 1);
-
-    return registered + Math.max(0, partial);
-  }
-
-  // ——— Ramo speciale per modalità test al minuto ———
-  if (dep.paymentFrequency === "1min") {
-    const registered = dep.transactions
-      .filter(t => t.type === "interessi")
-      .reduce((sum, t) => sum + t.amount, 0);
-
-    // Calcola la quota maturata nel tick corrente (non ancora registrata)
-    const lastTx = dep.transactions
-      .filter(t => t.type === "interessi")
-      .sort((a, b) => new Date(b.date) - new Date(a.date))[0];
-    const lastMs    = lastTx ? new Date(lastTx.date).getTime() : new Date(dep.startDate).getTime();
-    const elapsedMs = Date.now() - lastMs;
-
-    // Importo del tick corrente scalato per i secondi trascorsi (0→1 in 60s)
-    const invested      = calcInvested(dep);
-    const netRate       = calcNetRate(dep);
-    const amountPerTick = invested * (netRate / 100) / 365;
-    const partial       = amountPerTick * Math.min(elapsedMs / 60000, 1);
-
-    return registered + Math.max(0, partial);
-  }
-
-  // Interessi già capitalizzati (registrati come movimenti)
-  const registeredInterest = dep.transactions
-    .filter(t => t.type === "interessi")
-    .reduce((sum, t) => sum + t.amount, 0);
-
-  // Trova la data dell'ultimo pagamento registrato (o la data di apertura)
-  const lastInterestTx = dep.transactions
-    .filter(t => t.type === "interessi")
-    .sort((a, b) => new Date(b.date) - new Date(a.date))[0];
-
-  const fromDate = lastInterestTx ? lastInterestTx.date : dep.startDate;
-  if (!fromDate) return registeredInterest;
-
-  const today = new Date().toISOString().split("T")[0];
-
-  // Interessi non ancora registrati (dall'ultimo pagamento a oggi)
-  const unregistered = calcInterestForPeriod(dep, fromDate, today);
-
-  return registeredInterest + unregistered;
+  return Math.max(0, calcDepositBalance(dep) - calcInvested(dep));
 }
 
 /**
- * Calcola la data del prossimo pagamento interessi in base alla frequenza.
- * Parte dalla data di apertura e avanza finché non supera oggi.
- * Per la frequenza giornaliera restituisce direttamente domani.
+ * Calcola la data del prossimo pagamento interessi.
  *
  * @param {Object} dep - Oggetto conto deposito
- * @returns {string} data in formato YYYY-MM-DD oppure "—" se non disponibile
+ * @returns {string} data in formato YYYY-MM-DD oppure "—"
  */
 function calcNextInterestDate(dep) {
   if (!dep.startDate) return "—";
 
-  // Caso speciale: modalità test 15 secondi → mostra countdown preciso
-  if (dep.paymentFrequency === "15sec") {
-    const lastTx = dep.transactions
-      .filter(t => t.type === "interessi")
-      .sort((a, b) => new Date(b.date) - new Date(a.date))[0];
-    const lastMs   = lastTx ? new Date(lastTx.date).getTime() : new Date(dep.startDate).getTime();
-    const nextMs   = lastMs + 15000;
-    const secsLeft = Math.max(0, Math.ceil((nextMs - Date.now()) / 1000));
-    return secsLeft === 0 ? "⚡ now" : `⚡ in ${secsLeft}s`;
-  }
+  const today = new Date(); today.setHours(0, 0, 0, 0);
 
-  // Caso speciale: modalità test al minuto → mostra countdown preciso in secondi
-  if (dep.paymentFrequency === "1min") {
-    const lastTx = dep.transactions
-      .filter(t => t.type === "interessi")
-      .sort((a, b) => new Date(b.date) - new Date(a.date))[0];
-    const lastMs   = lastTx ? new Date(lastTx.date).getTime() : new Date(dep.startDate).getTime();
-    const nextMs   = lastMs + 60000;
-    const secsLeft = Math.max(0, Math.ceil((nextMs - Date.now()) / 1000));
-    return secsLeft === 0 ? "⏱ now" : `⏱ in ${secsLeft}s`;
-  }
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  // Caso speciale: frequenza giornaliera → prossimo pagamento è sempre domani
+  // Frequenza giornaliera: il prossimo pagamento è sempre domani
   if (dep.paymentFrequency === "giornaliero") {
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
     return tomorrow.toISOString().split("T")[0];
   }
 
-  // Numero di mesi tra un pagamento e l'altro per ogni frequenza
+  // Frequenze mensili: avanziamo di N mesi finché superiamo oggi
   const freqMap = { mensile: 1, trimestrale: 3, semestrale: 6, annuale: 12 };
   const months = freqMap[dep.paymentFrequency] || 12;
 
-  // Partiamo dalla data di apertura e avanziamo di `months` mesi finché superiamo oggi
-  let next = new Date(dep.startDate);
-  next.setHours(0, 0, 0, 0);
-
+  let next = new Date(dep.startDate); next.setHours(0, 0, 0, 0);
   while (next <= today) {
     next.setMonth(next.getMonth() + months);
   }
 
   return next.toISOString().split("T")[0];
+}
+
+/**
+ * Ricostruisce la timeline completa del conto deposito per la visualizzazione dello storico.
+ * Restituisce tutti gli eventi (depositi, prelievi, interessi CALCOLATI) con saldo progressivo.
+ *
+ * Gli interessi NON sono salvati nel JSON — vengono generati al volo da questa funzione
+ * usando la stessa logica di calcDepositBalance.
+ *
+ * @param {Object} dep - Oggetto conto deposito
+ * @returns {Array<{date: string, type: string, amount: number, balance: number, note: string}>}
+ */
+function computeDepositTimeline(dep) {
+  const netAnnualRate = dep.annualRate * (1 - (dep.taxRate ?? 26) / 100) / 100;
+  const periodsPerYear = {
+    giornaliero: 365, mensile: 12, trimestrale: 4, semestrale: 2, annuale: 1
+  }[dep.paymentFrequency] || 1;
+  const ratePerPeriod = netAnnualRate / periodsPerYear;
+
+  const cashFlows = dep.transactions
+    .filter(t => t.type === "deposito" || t.type === "prelievo")
+    .sort((a, b) => new Date(a.date) - new Date(b.date));
+
+  if (cashFlows.length === 0) return [];
+
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const startDate = new Date(dep.startDate); startDate.setHours(0, 0, 0, 0);
+
+  const paymentDates = generateDepositPaymentDates(dep, startDate, today);
+
+  // Stessa struttura di calcDepositBalance: cashflow (0) prima degli interessi (1)
+  const timeline = [];
+  cashFlows.forEach(t => {
+    const d = new Date(t.date); d.setHours(0, 0, 0, 0);
+    timeline.push({
+      ms:     d.getTime(),
+      order:  0,
+      type:   t.type,
+      delta:  t.type === "deposito" ? t.amount : -t.amount,
+      note:   t.note || ""
+    });
+  });
+  paymentDates.forEach(d => {
+    timeline.push({ ms: d.getTime(), order: 1, type: "interessi" });
+  });
+  timeline.sort((a, b) => a.ms - b.ms || a.order - b.order);
+
+  const result = [];
+  let balance = 0;
+
+  for (const ev of timeline) {
+    const dateStr = new Date(ev.ms).toISOString().split("T")[0];
+
+    if (ev.type === "interessi") {
+      // Calcola l'interesse maturato in questo periodo e aggiornalo al saldo
+      const interestAmt = balance * ratePerPeriod;
+      balance *= (1 + ratePerPeriod);
+      result.push({
+        date:    dateStr,
+        type:    "interessi",
+        amount:  interestAmt,
+        balance: balance,
+        note:    `Net rate ${calcNetRate(dep).toFixed(3)}% annual`
+      });
+    } else {
+      // Deposito o prelievo: aggiorna il saldo
+      balance += ev.delta;
+      result.push({
+        date:    dateStr,
+        type:    ev.type,
+        amount:  Math.abs(ev.delta),
+        balance: balance,
+        note:    ev.note
+      });
+    }
+  }
+
+  return result;
 }
 
 /**
@@ -3481,23 +3283,12 @@ function populateDepositSelects() {
 
 /**
  * Renderizza la sezione "Conti Deposito" nella pagina Investments.
- * Prima di renderizzare, chiama processInterestPayments() su ogni conto
+ * Prima di renderizzare, aggiorna i saldi tramite calcDepositBalance() (no scrittura su disco).
  * per capitalizzare automaticamente gli interessi scaduti.
  * Mostra le summary cards globali e la tabella con tutti i conti.
  */
 function renderDepositAccountsSection() {
-  // ——— Auto-capitalizzazione interessi scaduti ———
-  // Per ogni conto deposito, registra i pagamenti di interessi non ancora contabilizzati.
-  // Se qualcosa è cambiato, salva e aggiorna il grafico del portafoglio.
-  let anyChanged = false;
-  depositAccounts.forEach(dep => {
-    if (processInterestPayments(dep)) anyChanged = true;
-  });
-  if (anyChanged) {
-    saveDepositAccounts();
-    // Aggiorna anche il pie chart che include i saldi dei depositi
-    renderInvestmentsPieChart();
-  }
+  // Gli interessi vengono calcolati al volo da calcDepositBalance — nessuna scrittura su disco.
 
   // ——— Summary cards globali ———
   const summaryDiv = document.getElementById("summary-deposits");
@@ -3510,12 +3301,11 @@ function renderDepositAccountsSection() {
   let weightSum = 0;
 
   depositAccounts.forEach(dep => {
-    const invested = calcInvested(dep);
-    const interest = calcAccruedInterest(dep);
-    // Current Balance = capitale investito + tutti gli interessi maturati (anche non ancora registrati)
-    const bal = invested + interest;
+    const invested  = calcInvested(dep);
+    const bal       = calcDepositBalance(dep);   // saldo composto aggiornato
+    const interest  = bal - invested;            // = calcAccruedInterest(dep)
     totalInvested += invested;
-    totalBalance += bal;
+    totalBalance  += bal;
     totalInterest += interest;
     // Media pesata del tasso (peso = saldo corrente)
     weightedRate += dep.annualRate * bal;
@@ -3562,15 +3352,12 @@ function renderDepositAccountsSection() {
 
   depositAccounts.forEach(dep => {
     const invested = calcInvested(dep);
-    const interest = calcAccruedInterest(dep);
-    // Current Balance include tutto: capitale + interessi maturati (anche non ancora registrati)
-    const balance = invested + interest;
+    const balance  = calcDepositBalance(dep);    // saldo composto aggiornato
+    const interest = balance - invested;         // interessi maturati
     const nextDate = calcNextInterestDate(dep);
 
-    // Badge colore per la frequenza (incluso giornaliero e modalità test)
+    // Badge colore per la frequenza
     const freqColors = {
-      "15sec":      "dep-freq-test",
-      "1min":       "dep-freq-test",   // stessa classe del 15sec: modalità test
       giornaliero:  "dep-freq-daily",
       mensile:      "dep-freq-monthly",
       trimestrale:  "dep-freq-quarterly",
@@ -3594,7 +3381,7 @@ function renderDepositAccountsSection() {
         <span class="dep-rate-badge">${dep.annualRate.toFixed(2)}% gross</span>
         <small class="dep-rate-net">${netRate.toFixed(2)}% net (${taxRate}% tax)</small>
       </td>
-      <td><span class="dep-freq-badge ${freqClass}">${{ "15sec": "⚡ 15s test", "1min": "⏱ 1min test", giornaliero: "Daily", mensile: "Monthly", trimestrale: "Quarterly", semestrale: "Semi-annual", annuale: "Annual" }[dep.paymentFrequency] || dep.paymentFrequency}</span></td>
+      <td><span class="dep-freq-badge ${freqClass}">${{ giornaliero: "Daily", mensile: "Monthly", trimestrale: "Quarterly", semestrale: "Semi-annual", annuale: "Annual" }[dep.paymentFrequency] || dep.paymentFrequency}</span></td>
       <td class="amount">${invested.toFixed(2)} &euro;</td>
       <td class="amount positive"><strong>${balance.toFixed(2)} &euro;</strong></td>
       <td class="amount positive">+${interest.toFixed(2)} &euro;</td>
@@ -3658,42 +3445,11 @@ function renderDepositAccountsSection() {
     });
   });
 
-  // ——— Auto-refresh per conti test (15sec o 1min) ———
-  // Se esiste almeno un conto in modalità test, avvia un intervallo che re-renderizza ogni secondo
-  // (per aggiornare il countdown "Next Payment" e capitalizzare i tick scaduti).
-  // L'intervallo viene fermato automaticamente quando non ci sono più conti test.
-  const hasTestAccount = depositAccounts.some(
-    d => d.paymentFrequency === "15sec" || d.paymentFrequency === "1min"
-  );
-  if (hasTestAccount) {
-    if (!window._deposit15secInterval) {
-      window._deposit15secInterval = setInterval(() => {
-        // Controlla se siamo ancora nella pagina investments
-        const investPage = document.getElementById("page-investments");
-        const isVisible  = investPage && investPage.classList.contains("active");
-        const stillHasTest = depositAccounts.some(
-          d => d.paymentFrequency === "15sec" || d.paymentFrequency === "1min"
-        );
-        if (!isVisible || !stillHasTest) {
-          clearInterval(window._deposit15secInterval);
-          window._deposit15secInterval = null;
-          return;
-        }
-        renderDepositAccountsSection();
-      }, 1000); // ogni secondo per countdown fluido
-    }
-  } else {
-    // Nessun conto test: ferma l'intervallo se era attivo
-    if (window._deposit15secInterval) {
-      clearInterval(window._deposit15secInterval);
-      window._deposit15secInterval = null;
-    }
-  }
 }
 
 /**
  * Apre il modal storico movimenti per un conto deposito specifico.
- * Mostra un riepilogo e la lista di tutti i movimenti registrati.
+ * Usa computeDepositTimeline per ricostruire l'intera storia inclusi gli interessi calcolati.
  *
  * @param {number} depId - ID del conto deposito
  */
@@ -3701,20 +3457,14 @@ function openDepositHistoryModal(depId) {
   const dep = depositAccounts.find(d => d.id === depId);
   if (!dep) return;
 
-  const balance = calcDepositBalance(dep);
-  const totalInterest = calcAccruedInterest(dep);
-
-  // Interessi già capitalizzati (registrati come movimenti)
-  const capitalizedInterest = dep.transactions
-    .filter(t => t.type === "interessi")
-    .reduce((sum, t) => sum + t.amount, 0);
-  // Interessi ancora in maturazione (dal l'ultimo pagamento a oggi, non ancora registrati)
-  const accruingInterest = Math.max(0, totalInterest - capitalizedInterest);
+  const balance  = calcDepositBalance(dep);
+  const invested = calcInvested(dep);
+  const interest = calcAccruedInterest(dep);
 
   // Titolo modal
   document.getElementById("dep-history-title").textContent = `History — ${dep.name}`;
 
-  // Riepilogo del conto con dettaglio interessi
+  // Riepilogo del conto
   document.getElementById("dep-history-summary").innerHTML = `
     <div class="dep-history-cards">
       <div class="dep-hist-card">
@@ -3722,12 +3472,12 @@ function openDepositHistoryModal(depId) {
         <span class="dep-hist-value">${balance.toFixed(2)} €</span>
       </div>
       <div class="dep-hist-card">
-        <span class="dep-hist-label">Capitalized Interest</span>
-        <span class="dep-hist-value positive">+${capitalizedInterest.toFixed(2)} €</span>
+        <span class="dep-hist-label">Invested</span>
+        <span class="dep-hist-value">${invested.toFixed(2)} €</span>
       </div>
       <div class="dep-hist-card">
-        <span class="dep-hist-label">Accruing</span>
-        <span class="dep-hist-value positive">+${accruingInterest.toFixed(2)} €</span>
+        <span class="dep-hist-label">Accrued Interest</span>
+        <span class="dep-hist-value positive">+${interest.toFixed(4)} €</span>
       </div>
       <div class="dep-hist-card">
         <span class="dep-hist-label">Net Rate</span>
@@ -3735,32 +3485,38 @@ function openDepositHistoryModal(depId) {
       </div>
       <div class="dep-hist-card">
         <span class="dep-hist-label">Payment</span>
-        <span class="dep-hist-value">${{ "15sec": "⚡ 15s test", "1min": "⏱ 1min test", giornaliero: "Daily", mensile: "Monthly", trimestrale: "Quarterly", semestrale: "Semi-annual", annuale: "Annual" }[dep.paymentFrequency] || dep.paymentFrequency}</span>
+        <span class="dep-hist-value">${{ giornaliero: "Daily", mensile: "Monthly", trimestrale: "Quarterly", semestrale: "Semi-annual", annuale: "Annual" }[dep.paymentFrequency] || dep.paymentFrequency}</span>
       </div>
     </div>
   `;
 
-  // Lista movimenti ordinata dal più recente
+  // Ricostruisce la timeline completa (cashflow + interessi calcolati al volo)
   const tbody = document.getElementById("dep-history-body");
   tbody.innerHTML = "";
 
-  if (!dep.transactions.length) {
+  const timeline = computeDepositTimeline(dep);
+
+  if (timeline.length === 0) {
     tbody.innerHTML = '<tr><td colspan="4" class="empty-msg">No transactions recorded.</td></tr>';
   } else {
-    // Ordina dal più recente al più vecchio
-    const sorted = [...dep.transactions].sort((a, b) => new Date(b.date) - new Date(a.date));
+    // Mostra dal più recente al più vecchio
+    const sorted = [...timeline].reverse();
+
+    const typeConfig = {
+      deposito:  { label: "Deposit",    icon: "arrow-down-circle", cls: "positive" },
+      prelievo:  { label: "Withdrawal", icon: "arrow-up-circle",   cls: "negative" },
+      interessi: { label: "Interest",   icon: "sparkles",          cls: "positive" }
+    };
 
     sorted.forEach(t => {
       const tr = document.createElement("tr");
-      const isPositive = t.type === "deposito" || t.type === "interessi";
-
-      // Icona e colore per tipo movimento
-      const typeConfig = {
-        deposito: { label: "Deposit", icon: "arrow-down-circle", cls: "positive" },
-        prelievo: { label: "Withdrawal", icon: "arrow-up-circle", cls: "negative" },
-        interessi: { label: "Interest", icon: "sparkles", cls: "positive" }
-      };
+      const isPositive = t.type !== "prelievo";
       const cfg = typeConfig[t.type] || { label: t.type, icon: "circle", cls: "" };
+
+      // Per gli interessi mostriamo 4 decimali per evidenziare la crescita composta
+      const amtStr = t.type === "interessi"
+        ? t.amount.toFixed(4)
+        : t.amount.toFixed(2);
 
       tr.innerHTML = `
         <td>${t.date}</td>
@@ -3770,7 +3526,7 @@ function openDepositHistoryModal(depId) {
           </span>
         </td>
         <td class="amount ${cfg.cls}">
-          ${isPositive ? "+" : "-"}${t.amount.toFixed(2)} &euro;
+          ${isPositive ? "+" : "-"}${amtStr} &euro;
         </td>
         <td>${t.note || "—"}</td>
       `;
@@ -3824,11 +3580,7 @@ function bindDepositAccountActions() {
     // Tasso di tassazione sugli interessi (default 26% — aliquota italiana)
     const taxRate = parseFloat(document.getElementById("dep-tax-rate").value) || 26;
     const paymentFrequency = document.getElementById("dep-frequency").value;
-    // Per le modalità test (15sec, 1min) usiamo il timestamp preciso di creazione come startDate,
-    // così i tick partono dal momento esatto in cui viene creato il conto.
-    const startDate = (paymentFrequency === "15sec" || paymentFrequency === "1min")
-      ? new Date().toISOString()
-      : document.getElementById("dep-start").value;
+    const startDate = document.getElementById("dep-start").value;
     const endDate = document.getElementById("dep-end").value;
     const linkedConto = document.getElementById("dep-linked-conto").value;
     const initialAmount = parseFloat(document.getElementById("dep-initial").value) || 0;
@@ -3899,10 +3651,9 @@ function bindDepositAccountActions() {
     if (!dep) return showToast("Deposit account not found.", "error");
 
     // Se si sta prelevando, verifica che il saldo sia sufficiente.
-    // Il saldo disponibile include il capitale investito + tutti gli interessi maturati
-    // (sia registrati che ancora in maturazione), coerentemente con il Current Balance mostrato.
+    // Il saldo disponibile è il Current Balance calcolato con capitalizzazione composta.
     if (direction === "out") {
-      const currentBal = calcInvested(dep) + calcAccruedInterest(dep);
+      const currentBal = calcDepositBalance(dep);
       if (amount > currentBal) {
         return showToast(`Insufficient balance. Available: ${currentBal.toFixed(2)} €`, "error");
       }
