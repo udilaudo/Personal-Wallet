@@ -139,7 +139,10 @@ class Wallet {
     let amountPaypal = 0;
     let amountRemaining = 0;
 
-    if (conto === "paypal") {
+    if (conto === "paypal" && type === 0) {
+      // Lo split ha senso solo per le spese (type 0): se l'importo supera il saldo PayPal
+      // si divide la transazione tra PayPal e il conto principale.
+      // Per le entrate (type 1) non serve: si sta aggiungendo denaro, non spendendolo.
       const paypalBalance = this.saldoConti["paypal"] || 0;
       if (amount > paypalBalance) {
         splitAmount = true;

@@ -1858,19 +1858,43 @@ function renderInvestmentsPage() {
     });
   });
 
-  // Bind remove buttons
+  // Bind remove buttons: invece di cancellare subito, apre un modal di conferma
   document.querySelectorAll("[data-inv-remove]").forEach(btn => {
     btn.addEventListener("click", () => {
       const id = parseInt(btn.dataset.invRemove);
       const inv = investments.find(i => i.id === id);
       if (!inv) return;
 
+      // Imposta l'ID dell'investimento nel campo nascosto del modal
+      document.getElementById("inv-remove-id").value = id;
+      // Mostra il nome dell'investimento nel testo di conferma
+      document.getElementById("inv-remove-confirm-text").textContent =
+        `Are you sure you want to remove "${inv.name}"? This action cannot be undone.`;
+      // Apre il modal di conferma invece di cancellare immediatamente
+      openModal("modal-confirm-inv-remove");
+    });
+  });
+
+  // Listener per il pulsante di conferma nel modal di rimozione investimento
+  const btnConfirmInvRemove = document.getElementById("btn-confirm-inv-remove");
+  if (btnConfirmInvRemove) {
+    // Rimuove eventuali listener precedenti clonando il nodo (evita duplicati al re-render)
+    const freshBtn = btnConfirmInvRemove.cloneNode(true);
+    btnConfirmInvRemove.parentNode.replaceChild(freshBtn, btnConfirmInvRemove);
+
+    freshBtn.addEventListener("click", () => {
+      const id = parseInt(document.getElementById("inv-remove-id").value);
+      const inv = investments.find(i => i.id === id);
+      if (!inv) return;
+
+      // Rimuove l'investimento dall'array e salva
       investments = investments.filter(i => i.id !== id);
       saveInvestments();
+      closeModal("modal-confirm-inv-remove");
       renderInvestmentsPage();
       showToast(`${inv.name} removed!`);
     });
-  });
+  }
 }
 
 const PIE_COLORS = [
