@@ -293,7 +293,7 @@ def api_price_history():
 if __name__ == "__main__":
     os.makedirs(DATA_DIR, exist_ok=True)
     print(f"Data directory: {DATA_DIR}")
-    print(f"Open http://localhost:5001 in your browser")
+    print(f"Open http://localhost:8501 in your browser")
     # debug=False: disabilita la console interattiva di Werkzeug in caso di errore,
     # che permetterebbe l'esecuzione di codice arbitrario sul server.
     app.run(debug=False, port=8501, host="127.0.0.1")

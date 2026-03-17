@@ -493,27 +493,97 @@ class Wallet {
   // ======================== IMPORT/EXPORT CSV ========================
 
   /**
+   * Parsa una singola riga CSV rispettando il formato RFC 4180:
+   * - I campi possono essere racchiusi tra virgolette doppie
+   * - Una virgola dentro un campo quotato non viene trattata come separatore
+   * - Le virgolette doppie dentro un campo quotato sono escape come ""
+   * Esempio: 5,-12.5,🛒 Spesa,"Pasta, pomodoro",2025,3,10,bancoposta,0
+   *
+   * @param {string} line - Riga CSV grezza
+   * @returns {string[]} Array di valori estratti
+   */
+  static parseCSVLine(line) {
+    const fields = [];
+    let current = "";
+    let insideQuotes = false;
+
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+
+      if (insideQuotes) {
+        if (ch === '"') {
+          // Controlla se è un "" escape (virgolette doppie nel campo)
+          if (i + 1 < line.length && line[i + 1] === '"') {
+            current += '"';
+            i++; // salta il secondo "
+          } else {
+            // Fine del campo quotato
+            insideQuotes = false;
+          }
+        } else {
+          current += ch;
+        }
+      } else {
+        if (ch === '"') {
+          // Inizio campo quotato
+          insideQuotes = true;
+        } else if (ch === ',') {
+          // Separatore: salva il campo corrente e ricomincia
+          fields.push(current);
+          current = "";
+        } else {
+          current += ch;
+        }
+      }
+    }
+
+    // Salva l'ultimo campo (non c'è virgola finale)
+    fields.push(current);
+    return fields;
+  }
+
+  /**
+   * Quota un valore per l'output CSV (RFC 4180):
+   * - Se il valore contiene virgole, virgolette o newline, lo racchiude tra ""
+   * - Le virgolette interne vengono raddoppiate: " → ""
+   * Esempio: 'Pasta, pomodoro' → '"Pasta, pomodoro"'
+   *
+   * @param {string|number} value - Valore da quotare
+   * @returns {string} Valore pronto per l'output CSV
+   */
+  static quoteCSVField(value) {
+    const str = String(value == null ? "" : value);
+    // Necessita di quoting se contiene virgola, virgolette doppie o newline
+    if (str.includes(",") || str.includes('"') || str.includes("\n")) {
+      // Raddoppia le virgolette interne e racchiude tra ""
+      return '"' + str.replace(/"/g, '""') + '"';
+    }
+    return str;
+  }
+
+  /**
    * Carica transazioni da una stringa CSV.
    * Il formato atteso: ID,Amount,Category,Description,Y,M,D,Conto,Type
+   * Usa parseCSVLine() per gestire correttamente i campi con virgole.
    * @param {string} csvString - Contenuto del file CSV
    */
   importCSV(csvString) {
     const lines = csvString.trim().split("\n");
     if (lines.length < 2) return;
 
-    // La prima riga è l'header
-    const header = lines[0].split(",");
+    // La prima riga è l'header (non serve usarla, i campi sono posizionali)
     this.transactions = [];
 
     for (let i = 1; i < lines.length; i++) {
-      const values = lines[i].split(",");
+      // Usa il parser RFC 4180 invece di split(",")
+      const values = Wallet.parseCSVLine(lines[i]);
       if (values.length < 9) continue;
 
       this.transactions.push({
         ID: parseInt(values[0]),
         Amount: parseFloat(values[1]),
         Category: values[2],
-        Description: values[3],
+        Description: values[3],       // può contenere virgole: ora gestito correttamente
         Y: parseInt(values[4]),
         M: parseInt(values[5]),
         D: parseInt(values[6]),
@@ -527,13 +597,16 @@ class Wallet {
   }
 
   /**
-   * Esporta le transazioni come stringa CSV.
+   * Esporta le transazioni come stringa CSV (formato RFC 4180).
+   * I campi che contengono virgole o caratteri speciali vengono quotati.
    * @returns {string} Contenuto CSV
    */
   exportCSV() {
+    const q = Wallet.quoteCSVField; // alias per brevità
     let csv = "ID,Amount,Category,Description,Y,M,D,Conto,Type\n";
     for (const t of this.transactions) {
-      csv += `${t.ID},${t.Amount},${t.Category},${t.Description},${t.Y},${t.M},${t.D},${t.Conto},${t.Type}\n`;
+      // Category e Description vengono quotati se necessario
+      csv += `${t.ID},${t.Amount},${q(t.Category)},${q(t.Description)},${t.Y},${t.M},${t.D},${q(t.Conto)},${t.Type}\n`;
     }
     return csv;
   }

@@ -50,6 +50,8 @@ let currentChartFiltered = null;
 let currentChartInvestment = null;
 let currentChartInvPie = null;
 let currentChartAccountsPie = null;
+let currentChartNetworthPie = null; // doughnut Net Worth Breakdown (dashboard)
+let currentChartHeroTrend  = null; // mini bar chart trend 6 mesi (hero section)
 // Mappa canvasId → istanza Chart per i Daily Balance (dashboard + analytics)
 const dailyBalanceChartInstances = {};
 
@@ -61,6 +63,14 @@ let excludeSaldoFiltered = false;
 let investments = JSON.parse(localStorage.getItem("wallet_investments") || "[]");
 let selectedInvTicker = null;
 let selectedInvRange = "1mo";
+
+// Modalità visualizzazione portfolio: "table" (default) o "cards".
+// Persiste in localStorage così l'utente ritrova la sua preferenza.
+let invViewMode = localStorage.getItem("inv-view-mode") || "table";
+
+// Modalità pie chart: false = ogni asset è una slice separata (default),
+// true = gli asset vengono raggruppati per tipo (ETF, Crypto, Bond, ecc.)
+let invPieGrouped = false;
 
 // ======================== CONTI DEPOSITO — STATO GLOBALE ========================
 // Array di conti deposito: ogni elemento ha id, nome, banca, tasso, frequenza,
@@ -691,7 +701,7 @@ function renderHeroSection() {
     return `<span class="${cls}">${arrow} ${Math.abs(pct).toFixed(0)}%</span>`;
   }
 
-  const monthName = now.toLocaleString("it-IT", { month: "long" });
+  const monthName = now.toLocaleString("en-EN", { month: "long" });
 
   const totalSign  = thisTotal >= 0 ? "+" : "−";
   const totalClass = thisTotal >= 0 ? "positive" : "negative";
@@ -727,6 +737,118 @@ function renderHeroSection() {
       ${netDiffBadge(thisTotal, prevTotal)}
     </div>
   `;
+
+  // ---- Mini bar chart: trend entrate/uscite ultimi 6 mesi ----
+  renderHeroTrendChart();
+}
+
+/**
+ * renderHeroTrendChart — costruisce (o ricrea) il mini grafico a barre
+ * nella hero section con entrate e uscite degli ultimi 6 mesi.
+ * Distrugge sempre l'istanza precedente per evitare duplicati Chart.js.
+ */
+function renderHeroTrendChart() {
+  const canvas = document.getElementById("chart-hero-trend");
+  if (!canvas) return;
+
+  // Distrugge il chart precedente se esiste (evita "Canvas already in use")
+  if (currentChartHeroTrend) {
+    currentChartHeroTrend.destroy();
+    currentChartHeroTrend = null;
+  }
+
+  // Determina colori in base al tema attivo (light / dark)
+  const isDark = document.documentElement.getAttribute("data-theme") === "dark";
+  const gridColor    = isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)";
+  const tickColor    = isDark ? "#9b97b0" : "#9ca3af";
+  const incomeColor  = isDark ? "rgba(52,211,153,0.85)"  : "rgba(16,185,129,0.85)";
+  const expenseColor = isDark ? "rgba(248,113,113,0.85)" : "rgba(239,68,68,0.85)";
+
+  // Costruisce array degli ultimi 6 mesi (dal più vecchio al più recente)
+  const labels   = [];
+  const incomes  = [];
+  const expenses = [];
+
+  const now = new Date();
+  for (let i = 5; i >= 0; i--) {
+    // Calcola anno/mese per ogni slot andando indietro di i mesi
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const y = d.getFullYear();
+    const m = d.getMonth() + 1;
+
+    // Etichetta abbreviata "Mar 25"
+    labels.push(d.toLocaleString("en-EN", { month: "short" }) + " " + String(y).slice(2));
+
+    // Somma entrate e uscite del mese (escluse Type 2/3 = saldi iniziali)
+    const monthTx = wallet.transactions.filter(t => t.Y === y && t.M === m && t.Type !== 2 && t.Type !== 3);
+    incomes.push(monthTx.filter(t => t.Type === 1).reduce((s, t) => s + t.Amount, 0));
+    expenses.push(monthTx.filter(t => t.Type === 0).reduce((s, t) => s + Math.abs(t.Amount), 0));
+  }
+
+  const ctx = canvas.getContext("2d");
+  currentChartHeroTrend = new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [
+        {
+          label: "Income",
+          data: incomes,
+          backgroundColor: incomeColor,
+          borderRadius: 4,
+          borderSkipped: false,
+        },
+        {
+          label: "Expenses",
+          data: expenses,
+          backgroundColor: expenseColor,
+          borderRadius: 4,
+          borderSkipped: false,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 400 },
+      plugins: {
+        legend: {
+          display: true,
+          position: "top",
+          align: "end",
+          labels: {
+            color: tickColor,
+            font: { size: 10, family: "Inter, sans-serif" },
+            boxWidth: 10,
+            boxHeight: 10,
+            padding: 8,
+          },
+        },
+        tooltip: {
+          callbacks: {
+            // Aggiunge il simbolo € ai valori nel tooltip
+            label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y.toFixed(2)} €`,
+          },
+        },
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          ticks: { color: tickColor, font: { size: 10 } },
+        },
+        y: {
+          grid: { color: gridColor },
+          ticks: {
+            color: tickColor,
+            font: { size: 10 },
+            // Formatta i valori come "1.2k" per risparmiare spazio
+            callback: v => v >= 1000 ? (v / 1000).toFixed(1) + "k" : v,
+          },
+          beginAtZero: true,
+        },
+      },
+    },
+  });
 }
 
 // ======================== RECENT TRANSACTIONS ========================
@@ -1019,6 +1141,9 @@ function renderMainPage() {
 
   // --- Daily Balance Chart: Analytics page (usa tutte le transazioni, non filtrate) ---
   renderDailyBalanceChart("chart-daily-balance");
+
+  // --- Net Worth Breakdown Pie Chart (dashboard, prima del Daily Balance) ---
+  renderNetworthPieChart();
 
   // --- Daily Balance Chart: Dashboard (stesso grafico, canvas separato) ---
   renderDailyBalanceChart("chart-daily-balance-dash");
@@ -1324,6 +1449,22 @@ function calcNetSpentCurrentMonth() {
 }
 
 /**
+ * budgetBarColor — restituisce un colore HSL sfumato in base alla percentuale di budget usata.
+ * La tinta scorre continuamente da verde (0%) → giallo (50%) → rosso (100%+)
+ * usando l'interpolazione lineare della componente Hue in HSL.
+ *   hue 120 = verde, hue 60 = giallo, hue 0 = rosso
+ *
+ * @param {number} pct - percentuale 0–100 (può superare 100 se over budget)
+ * @returns {string} colore CSS hsl(...)
+ */
+function budgetBarColor(pct) {
+  // Clamp a 100 per il calcolo del colore (oltre il 100% resta rosso pieno)
+  const clamped = Math.min(pct, 100);
+  const hue = Math.round(120 * (1 - clamped / 100)); // 120 → 0
+  return `hsl(${hue}, 70%, 42%)`;
+}
+
+/**
  * renderBudgetSection — renderizza le barre di avanzamento budget nella Dashboard.
  * Usa sempre il mese corrente (non i filtri attivi) per mostrare lo stato reale.
  * Se nessun budget è impostato, la sezione rimane nascosta.
@@ -1364,9 +1505,7 @@ function renderBudgetSection() {
     const totalPct = Math.min((totalSpent / totalBudget) * 100, 100);
     const totalIsOver = totalSpent > totalBudget;
 
-    let totalBarClass = "budget-bar-ok";
-    if (totalIsOver || totalPct >= 90) totalBarClass = "budget-bar-danger";
-    else if (totalPct >= 70) totalBarClass = "budget-bar-warning";
+    const totalBarColor = budgetBarColor(totalPct);
 
     const totalItem = document.createElement("div");
     totalItem.className = "budget-item budget-item-total";
@@ -1381,7 +1520,7 @@ function renderBudgetSection() {
         </span>
       </div>
       <div class="budget-bar-track budget-bar-track-total">
-        <div class="budget-bar-fill ${totalBarClass}" style="width: ${totalPct.toFixed(1)}%"></div>
+        <div class="budget-bar-fill" style="width:${totalPct.toFixed(1)}%; background:${totalBarColor}"></div>
       </div>
     `;
     barsDiv.appendChild(totalItem);
@@ -1452,9 +1591,7 @@ function renderBudgetSection() {
     const pct = limit > 0 ? Math.min((spent / limit) * 100, 100) : 0;
     const isOver = spent > limit;
 
-    let barClass = "budget-bar-ok";
-    if (isOver || pct >= 90) barClass = "budget-bar-danger";
-    else if (pct >= 70) barClass = "budget-bar-warning";
+    const barColor = budgetBarColor(pct);
 
     const item = document.createElement("div");
     item.className = "budget-item";
@@ -1467,7 +1604,7 @@ function renderBudgetSection() {
         </span>
       </div>
       <div class="budget-bar-track">
-        <div class="budget-bar-fill ${barClass}" style="width: ${pct.toFixed(1)}%"></div>
+        <div class="budget-bar-fill" style="width:${pct.toFixed(1)}%; background:${barColor}"></div>
       </div>
     `;
     barsDiv.appendChild(item);
@@ -2048,6 +2185,108 @@ function renderAccountsOverview() {
 }
 
 /**
+ * renderNetworthPieChart — disegna il doughnut chart "Net Worth Breakdown" nella dashboard.
+ *
+ * Mostra la ripartizione del patrimonio netto in tre voci:
+ *   - Liquidità:    saldo totale del wallet (wallet.saldo)
+ *   - Investimenti: valore a prezzi correnti del portafoglio (currentPrice * quantity)
+ *   - Depositi:     saldo composto dei conti deposito (calcDepositBalance)
+ *
+ * Lato sinistro → canvas doughnut chart
+ * Lato destro   → righe etichetta + valore (€) + percentuale
+ *
+ * Il chart viene distrutto e ricreato ad ogni render per evitare duplicati.
+ */
+function renderNetworthPieChart() {
+  // ——— Calcola i tre valori ———
+  const liquidita      = Math.max(0, wallet.saldo);
+  const investmentsVal = investments.reduce((s, inv) => s + (inv.currentPrice || 0) * inv.quantity, 0);
+  const depositsVal    = depositAccounts.reduce((s, dep) => s + calcDepositBalance(dep), 0);
+  const total          = liquidita + investmentsVal + depositsVal;
+
+  // Palette coerente con il tema dell'app
+  const colors = ["#6c5ce7", "#10b981", "#f59e0b"]; // viola (wallet), verde (inv), giallo (dep)
+
+  // ——— Popola il lato destro con le cifre ———
+  const valuesDiv = document.getElementById("networth-values");
+  if (valuesDiv) {
+    // nav: pagina di destinazione al click
+    const items = [
+      { label: "Cash",            value: liquidita,      color: colors[0], nav: "main"        },
+      { label: "Investments",     value: investmentsVal, color: colors[1], nav: "investments" },
+      { label: "Deposit Accounts",value: depositsVal,    color: colors[2], nav: "investments" }
+    ];
+
+    valuesDiv.innerHTML = items.map(item => {
+      const pct = total > 0 ? (item.value / total * 100).toFixed(1) : "0.0";
+      return `
+        <div class="networth-item networth-item-link" data-nav="${item.nav}" title="Go to ${item.label}">
+          <div class="networth-item-dot" style="background:${item.color}"></div>
+          <span class="networth-item-label">${item.label}</span>
+          <div>
+            <div class="networth-item-value">${item.value.toFixed(2)} &euro;</div>
+            <div class="networth-item-pct">${pct}%</div>
+          </div>
+        </div>
+      `;
+    }).join("") + `
+      <div class="networth-total-row">
+        <span class="networth-item-label">Net Worth</span>
+        <span class="networth-item-value">${total.toFixed(2)} &euro;</span>
+      </div>
+    `;
+
+    // Naviga alla pagina corrispondente al click sulla riga
+    valuesDiv.querySelectorAll(".networth-item-link").forEach(el => {
+      el.addEventListener("click", () => navigateTo(el.dataset.nav));
+    });
+  }
+
+  // ——— Disegna il doughnut chart ———
+  const canvas = document.getElementById("chart-networth-pie");
+  if (!canvas) return;
+
+  // Distruggi istanza precedente per evitare memory leak
+  if (currentChartNetworthPie) {
+    currentChartNetworthPie.destroy();
+    currentChartNetworthPie = null;
+  }
+
+  const isDark = document.documentElement.getAttribute("data-theme") === "dark";
+
+  currentChartNetworthPie = new Chart(canvas.getContext("2d"), {
+    type: "doughnut",
+    data: {
+      labels: ["Liquidità", "Investimenti", "Depositi"],
+      datasets: [{
+        data: [liquidita, investmentsVal, depositsVal],
+        backgroundColor: colors,
+        borderWidth: 3,
+        borderColor: isDark ? "#1a1a2e" : "#ffffff",  // bordo separatore segmenti
+        hoverOffset: 8
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      cutout: "60%",             // foro centrale: lascia spazio per un valore
+      plugins: {
+        legend: { display: false },  // legenda sostituita dalle righe a destra
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              const val = ctx.parsed;
+              const pct = total > 0 ? (val / total * 100).toFixed(1) : 0;
+              return ` ${val.toFixed(2)} € (${pct}%)`;
+            }
+          }
+        }
+      }
+    }
+  });
+}
+
+/**
  * renderDailyBalanceChart — crea il grafico a linee del saldo giornaliero cumulativo.
  *
  * Logica:
@@ -2519,26 +2758,44 @@ function renderInvestmentsPage() {
     </div>
   `;
 
-  // Portfolio Table
-  const tbody = document.getElementById("investments-body");
-  tbody.innerHTML = "";
+  // ---- Mostra/nascondi i due container in base alla modalità attiva ----
+  const tableContainer = document.getElementById("investments-table-container");
+  const cardsContainer = document.getElementById("investments-cards-grid");
+  if (tableContainer) tableContainer.classList.toggle("hidden", invViewMode !== "table");
+  if (cardsContainer) cardsContainer.classList.toggle("hidden", invViewMode !== "cards");
 
+  // ---- Aggiorna lo stato attivo dei pulsanti toggle ----
+  document.querySelectorAll(".inv-view-btn").forEach(btn => {
+    btn.classList.toggle("active", btn.dataset.view === invViewMode);
+  });
+
+  // ---- Stato vuoto: uguale per entrambe le viste ----
   if (investments.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="12" class="empty-msg">No investments yet. Click "Add Investment" to start.</td></tr>';
+    const emptyRow = '<tr><td colspan="12" class="empty-msg">No investments yet. Click "Add Investment" to start.</td></tr>';
+    const emptyCard = `<div class="inv-cards-empty">
+      <i data-lucide="bar-chart-2"></i>
+      <p>No investments yet.<br>Click <strong>Add Investment</strong> to start.</p>
+    </div>`;
+    document.getElementById("investments-body").innerHTML = emptyRow;
+    if (cardsContainer) cardsContainer.innerHTML = emptyCard;
     lucide.createIcons();
     return;
   }
 
+  // ======================== VISTA TABELLA ========================
+  // Popola il <tbody id="investments-body"> con le righe originali.
+  const tbody = document.getElementById("investments-body");
+  tbody.innerHTML = "";
+
   investments.forEach(inv => {
-    const invested = inv.purchasePrice * inv.quantity;
+    const invested   = inv.purchasePrice * inv.quantity;
     const currentVal = (inv.currentPrice || inv.purchasePrice) * inv.quantity;
-    const pnl = currentVal - invested;
-    const pnlPct = invested > 0 ? ((currentVal / invested) - 1) * 100 : 0;
+    const pnl        = currentVal - invested;
+    const pnlPct     = invested > 0 ? ((currentVal / invested) - 1) * 100 : 0;
     const isPositive = pnl >= 0;
 
     const tr = document.createElement("tr");
     tr.className = isPositive ? "row-inv-profit" : "row-inv-loss";
-
     tr.innerHTML = `
       <td class="inv-name-cell">
         <strong>${inv.name}</strong>
@@ -2554,10 +2811,10 @@ function renderInvestmentsPage() {
       </td>
       <td>${invested.toFixed(2)} &euro;</td>
       <td>${currentVal.toFixed(2)} &euro;</td>
-      <td class="amount ${isPositive ? 'positive' : 'negative'}">
+      <td class="amount ${isPositive ? "positive" : "negative"}">
         ${isPositive ? "+" : ""}${pnl.toFixed(2)} &euro;
       </td>
-      <td class="amount ${isPositive ? 'positive' : 'negative'}">
+      <td class="amount ${isPositive ? "positive" : "negative"}">
         ${isPositive ? "+" : ""}${pnlPct.toFixed(2)}%
       </td>
       <td>${inv.purchaseDate}</td>
@@ -2569,9 +2826,80 @@ function renderInvestmentsPage() {
         </div>
       </td>
     `;
-
     tbody.appendChild(tr);
   });
+
+  // ======================== VISTA CARD ========================
+  // Popola il div#investments-cards-grid con le card compatte.
+  if (cardsContainer) {
+    cardsContainer.innerHTML = "";
+    investments.forEach(inv => {
+      const invested   = inv.purchasePrice * inv.quantity;
+      const currentVal = (inv.currentPrice || inv.purchasePrice) * inv.quantity;
+      const pnl        = currentVal - invested;
+      const pnlPct     = invested > 0 ? ((currentVal / invested) - 1) * 100 : 0;
+      const isPositive = pnl >= 0;
+      const pnlClass   = isPositive ? "inv-card-pnl--profit" : "inv-card-pnl--loss";
+      const arrow      = isPositive ? "↑" : "↓";
+      const currentPriceHtml = inv.currentPrice
+        ? `${inv.currentPrice.toFixed(2)} €${inv.lastUpdated ? `<span class="inv-card-updated">${inv.lastUpdated}</span>` : ""}`
+        : `<span class="inv-card-no-price">—</span>`;
+
+      const card = document.createElement("div");
+      card.className = `inv-card ${isPositive ? "inv-card--profit" : "inv-card--loss"}`;
+      card.innerHTML = `
+        <div class="inv-card-header">
+          <div class="inv-card-identity">
+            <span class="inv-card-name">${inv.name}</span>
+            <span class="inv-card-ticker">${inv.ticker || inv.isin || "—"}</span>
+          </div>
+          <span class="type-badge-inv type-inv-${inv.type.toLowerCase()}">${inv.type}</span>
+        </div>
+        <div class="inv-card-pnl ${pnlClass}">
+          <span class="inv-card-pnl-euro">${arrow} ${isPositive ? "+" : ""}${pnl.toFixed(2)} €</span>
+          <span class="inv-card-pnl-pct">${isPositive ? "+" : ""}${pnlPct.toFixed(2)}%</span>
+        </div>
+        <div class="inv-card-data">
+          <div class="inv-card-row">
+            <span class="inv-card-label">Qty</span>
+            <span class="inv-card-val">${inv.quantity}</span>
+          </div>
+          <div class="inv-card-row">
+            <span class="inv-card-label">Avg price</span>
+            <span class="inv-card-val">${inv.purchasePrice.toFixed(2)} €</span>
+          </div>
+          <div class="inv-card-row">
+            <span class="inv-card-label">Current</span>
+            <span class="inv-card-val">${currentPriceHtml}</span>
+          </div>
+          <div class="inv-card-row">
+            <span class="inv-card-label">Invested</span>
+            <span class="inv-card-val">${invested.toFixed(2)} €</span>
+          </div>
+          <div class="inv-card-row">
+            <span class="inv-card-label">Value</span>
+            <span class="inv-card-val inv-card-val--value">${currentVal.toFixed(2)} €</span>
+          </div>
+          <div class="inv-card-row">
+            <span class="inv-card-label">Since</span>
+            <span class="inv-card-val">${inv.purchaseDate}</span>
+          </div>
+        </div>
+        <div class="inv-card-actions">
+          <button class="btn-icon" title="Price history" data-inv-chart="${inv.id}">
+            <i data-lucide="line-chart"></i>
+          </button>
+          <button class="btn-icon" title="Refresh price" data-inv-refresh="${inv.id}">
+            <i data-lucide="refresh-cw"></i>
+          </button>
+          <button class="btn-icon btn-icon-danger" title="Remove" data-inv-remove="${inv.id}">
+            <i data-lucide="trash-2"></i>
+          </button>
+        </div>
+      `;
+      cardsContainer.appendChild(card);
+    });
+  }
 
   // Portfolio Allocation Pie Chart
   renderInvestmentsPieChart();
@@ -2672,33 +3000,74 @@ function renderInvestmentsPieChart() {
   const container = document.getElementById("inv-pie-container");
   if (!container) return;
 
-  // Costruiamo un array unificato con investimenti + conti deposito
-  // così il grafico mostra l'allocazione totale del portafoglio
-  const allItems = [];
+  // ---- Aggiorna label e stile del bottone toggle ----
+  const toggleBtn   = document.getElementById("btn-toggle-pie-group");
+  const toggleLabel = document.getElementById("btn-toggle-pie-group-label");
+  if (toggleBtn && toggleLabel) {
+    toggleLabel.textContent = invPieGrouped ? "Show individual" : "Group by type";
+    toggleBtn.classList.toggle("btn-primary", invPieGrouped);
+    toggleBtn.classList.toggle("btn-outline", !invPieGrouped);
+  }
 
-  // Aggiunge gli investimenti tradizionali (ETF, BTP, Stock, ecc.)
-  investments.forEach(inv => {
-    allItems.push({
-      label: inv.name,
-      value: (inv.currentPrice || inv.purchasePrice) * inv.quantity,
-      isDeposit: false
+  // Palette colori depositaccounts (toni teal/verde per distinguerli)
+  const DEPOSIT_COLORS = [
+    "#10b981", "#14b8a6", "#6ee7b7", "#34d399", "#059669",
+    "#0d9488", "#047857", "#065f46"
+  ];
+
+  // Colori fissi per tipo di investimento (usati in modalità grouped)
+  const TYPE_COLORS = {
+    "ETF":    "#6366f1",
+    "BTP":    "#f472b6",
+    "Stock":  "#f59e0b",
+    "Fund":   "#8b5cf6",
+    "Bond":   "#f97316",
+    "Crypto": "#facc15",
+  };
+
+  let allItems = [];
+
+  if (invPieGrouped) {
+    // ---- MODALITÀ RAGGRUPPATA: aggrega per tipo ----
+    // Accumula il valore corrente di tutti gli asset dello stesso tipo
+    const typeMap = {};
+    investments.forEach(inv => {
+      const val = (inv.currentPrice || inv.purchasePrice) * inv.quantity;
+      typeMap[inv.type] = (typeMap[inv.type] || 0) + val;
     });
-  });
-
-  // Aggiunge i conti deposito come slice separati nel grafico
-  depositAccounts.forEach(dep => {
-    const bal = calcDepositBalance(dep);
-    if (bal > 0) {
-      allItems.push({
-        // Sufisso visivo per distinguere i depositi nel grafico
-        label: `${dep.name} (Dep.)`,
-        value: bal,
-        isDeposit: true
+    // Converte la mappa in array ordinato per valore decrescente
+    Object.entries(typeMap)
+      .sort((a, b) => b[1] - a[1])
+      .forEach(([type, value]) => {
+        allItems.push({ label: type, value, isDeposit: false, type });
       });
+    // I depositi vengono raggruppati come voce unica "Deposits"
+    const totalDep = depositAccounts.reduce((s, dep) => {
+      const bal = calcDepositBalance(dep);
+      return s + (bal > 0 ? bal : 0);
+    }, 0);
+    if (totalDep > 0) {
+      allItems.push({ label: "Deposits", value: totalDep, isDeposit: true });
     }
-  });
+  } else {
+    // ---- MODALITÀ INDIVIDUALE: ogni asset è una slice separata (default) ----
+    investments.forEach(inv => {
+      allItems.push({
+        label: inv.name,
+        value: (inv.currentPrice || inv.purchasePrice) * inv.quantity,
+        isDeposit: false,
+        type: inv.type
+      });
+    });
+    depositAccounts.forEach(dep => {
+      const bal = calcDepositBalance(dep);
+      if (bal > 0) {
+        allItems.push({ label: `${dep.name} (Dep.)`, value: bal, isDeposit: true });
+      }
+    });
+  }
 
-  // Nascondi se non ci sono voci
+  // Nascondi il container se non ci sono voci
   if (allItems.length === 0) {
     container.classList.add("hidden");
     return;
@@ -2709,18 +3078,15 @@ function renderInvestmentsPieChart() {
 
   const labels = allItems.map(it => it.label);
   const values = allItems.map(it => it.value);
-  const total = values.reduce((a, b) => a + b, 0);
+  const total  = values.reduce((a, b) => a + b, 0);
 
-  // Palette colori: i depositi usano toni verdastri/teal per distinguerli visivamente
-  const DEPOSIT_COLORS = [
-    "#10b981", "#14b8a6", "#6ee7b7", "#34d399", "#059669",
-    "#0d9488", "#047857", "#065f46"
-  ];
-  const colors = allItems.map((it, i) =>
-    it.isDeposit
-      ? DEPOSIT_COLORS[depositAccounts.findIndex(d => it.label.startsWith(d.name)) % DEPOSIT_COLORS.length]
-      : PIE_COLORS[investments.findIndex(inv => it.label === inv.name) % PIE_COLORS.length]
-  );
+  // Assegna colori: in modalità grouped usa i colori fissi per tipo,
+  // in modalità individuale usa la palette PIE_COLORS (o teal per depositi)
+  const colors = allItems.map((it, i) => {
+    if (it.isDeposit) return DEPOSIT_COLORS[i % DEPOSIT_COLORS.length];
+    if (invPieGrouped) return TYPE_COLORS[it.type] || PIE_COLORS[i % PIE_COLORS.length];
+    return PIE_COLORS[investments.findIndex(inv => it.label === inv.name) % PIE_COLORS.length];
+  });
 
   const ctx = document.getElementById("chart-inv-pie").getContext("2d");
   currentChartInvPie = new Chart(ctx, {
@@ -2737,19 +3103,13 @@ function renderInvestmentsPieChart() {
     options: {
       responsive: true,
       plugins: {
-        // Titolo aggiornato per riflettere il portafoglio completo
-        title: {
-          display: true,
-          text: "Portfolio Allocation (Investments + Deposit Accounts)",
-          font: { size: 15, weight: "bold" }
-        },
         legend: { position: "bottom" },
         tooltip: {
           callbacks: {
-            label: (ctx) => {
+            label: ctx => {
               const val = ctx.parsed;
               const pct = total > 0 ? ((val / total) * 100).toFixed(1) : 0;
-              return ` ${ctx.label}: ${val.toFixed(2)} \u20AC (${pct}%)`;
+              return ` ${ctx.label}: ${val.toFixed(2)} € (${pct}%)`;
             }
           }
         }
@@ -2861,6 +3221,26 @@ async function showInvestmentChart(ticker, range, inv) {
 }
 
 function bindInvestmentActions() {
+  // Toggle visualizzazione portfolio: tabella ↔ card.
+  // Al click salva la preferenza in localStorage e ri-renderizza.
+  document.querySelectorAll(".inv-view-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      invViewMode = btn.dataset.view;
+      localStorage.setItem("inv-view-mode", invViewMode);
+      renderInvestmentsPage();
+    });
+  });
+
+  // Toggle pie chart raggruppato per tipo / per singolo asset.
+  // Non persiste in localStorage: è una preferenza di sessione.
+  const btnPieGroup = document.getElementById("btn-toggle-pie-group");
+  if (btnPieGroup) {
+    btnPieGroup.addEventListener("click", () => {
+      invPieGrouped = !invPieGrouped;
+      renderInvestmentsPieChart();
+    });
+  }
+
   // Add Investment
   document.getElementById("btn-add-investment").addEventListener("click", async () => {
     const name = document.getElementById("inv-name").value.trim();

@@ -436,6 +436,118 @@ body {
   flex-shrink: 0;
 }
 
+/* ===== NET WORTH BREAKDOWN (dashboard) ===== */
+
+/* Contenitore bipartito: sinistra pie, destra cifre */
+.networth-breakdown-body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: center;
+  gap: 2rem;
+  padding: 1.5rem;
+  min-height: 280px;
+}
+
+/* Lato sinistro: centra il canvas doughnut */
+.networth-pie-side {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.networth-pie-side canvas {
+  max-width: 260px;
+  max-height: 260px;
+  width: 100%;
+}
+
+/* Lato destro: lista verticale delle voci */
+.networth-values-side {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+/* Singola riga: pallino colore + etichetta + valore/percentuale */
+.networth-item {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+}
+
+.networth-item-dot {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.networth-item-label {
+  font-size: 0.9rem;
+  color: var(--color-text-secondary);
+  flex: 1;
+}
+
+.networth-item-value {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--color-text);
+  text-align: right;
+}
+
+.networth-item-pct {
+  font-size: 0.78rem;
+  color: var(--color-text-secondary);
+  text-align: right;
+  margin-top: 0.1rem;
+}
+
+/* Righe cliccabili: cursore pointer + hover leggero */
+.networth-item-link {
+  cursor: pointer;
+  border-radius: var(--radius-md);
+  padding: 0.3rem 0.4rem;
+  margin: -0.3rem -0.4rem;
+  transition: background var(--transition);
+}
+
+.networth-item-link:hover {
+  background: var(--color-primary-subtle);
+}
+
+.networth-item-link:hover .networth-item-label {
+  color: var(--color-primary);
+}
+
+/* Riga totale: separata dal resto con un bordo sottile */
+.networth-total-row {
+  margin-top: 0.25rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.networth-total-row .networth-item-value {
+  font-size: 1.15rem;
+  color: var(--color-primary);
+}
+
+/* Mobile: impila le due metà verticalmente */
+@media (max-width: 600px) {
+  .networth-breakdown-body {
+    grid-template-columns: 1fr;
+    min-height: auto;
+  }
+  .networth-pie-side canvas {
+    max-width: 200px;
+    max-height: 200px;
+  }
+}
+
+/* ===== FINE NET WORTH BREAKDOWN ===== */
+
 .balance-chip {
   display: flex;
   align-items: center;
@@ -674,6 +786,44 @@ body {
   border-radius: 4px;
   padding: 0.1rem 0.35rem;
   width: fit-content;
+}
+
+/* ======================== HERO TREND CHART ======================== */
+
+/* Container del mini grafico a barre nella hero section.
+   Si posiziona come terzo elemento in flex, occupa lo spazio rimanente
+   con una larghezza minima per garantire leggibilità. */
+.hero-trend-chart-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  flex: 1 1 260px;       /* cresce ma non scende sotto 260px */
+  min-width: 220px;
+  max-width: 420px;
+}
+
+/* Etichetta sopra il grafico ("6-month trend") */
+.hero-trend-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  opacity: 0.75;
+  color: #fff;
+}
+
+/* Il canvas deve avere altezza fissa; width=auto grazie a responsive:true */
+#chart-hero-trend {
+  width: 100% !important;
+  height: 90px !important;
+}
+
+/* Su mobile il grafico va sotto a piena larghezza */
+@media (max-width: 640px) {
+  .hero-trend-chart-wrapper {
+    flex: 1 1 100%;
+    max-width: 100%;
+  }
 }
 
 /* ======================== RECENT TRANSACTIONS CARD ======================== */
@@ -976,6 +1126,232 @@ tbody tr:last-child td {
   align-items: center;
   justify-content: center;
   gap: 0.25rem;
+}
+
+/* ======================== INVESTMENT VIEW TOGGLE ======================== */
+
+/* Gruppo di due bottoni (tabella / card) nell'action bar degli investimenti */
+.inv-view-toggle {
+  display: flex;
+  align-items: center;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 2px;
+  gap: 2px;
+}
+
+/* Singolo bottone del toggle */
+.inv-view-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  transition: background var(--transition), color var(--transition);
+}
+.inv-view-btn:hover {
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+/* Stato attivo: sfondo primario + colore bianco */
+.inv-view-btn.active {
+  background: var(--color-primary);
+  color: #fff;
+}
+.inv-view-btn i { width: 16px; height: 16px; }
+
+/* ======================== INVESTMENT CARDS GRID ======================== */
+
+/* Grid responsive: 3 colonne su desktop, 2 su tablet, 1 su mobile */
+.inv-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+/* Stato vuoto: messaggio centrato su tutta la larghezza */
+.inv-cards-empty {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 3rem 1rem;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+  text-align: center;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+}
+.inv-cards-empty i { width: 40px; height: 40px; opacity: 0.4; }
+
+/* Card base: surface con bordo colorato in alto (profit = verde, loss = rosso) */
+.inv-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  overflow: hidden;
+  transition: box-shadow var(--transition), transform var(--transition);
+}
+.inv-card:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+
+/* Bordo superiore colorato: segna a colpo d'occhio se in guadagno o perdita */
+.inv-card--profit { border-top: 3px solid var(--color-success); }
+.inv-card--loss   { border-top: 3px solid var(--color-danger); }
+
+/* ---- Header: identità asset (sinistra) + badge tipo (destra) ---- */
+.inv-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.9rem 1rem 0.6rem;
+}
+
+.inv-card-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;          /* permette il troncamento del testo */
+}
+
+/* Nome asset: grassetto, tronca se troppo lungo */
+.inv-card-name {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
+}
+
+/* Ticker / ISIN sotto il nome */
+.inv-card-ticker {
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  font-family: monospace;
+  letter-spacing: 0.04em;
+}
+
+/* ---- Blocco P&L: prominente, sfondo colorato ---- */
+.inv-card-pnl {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.7rem 1rem;
+  margin: 0 0.75rem 0.75rem;
+  border-radius: var(--radius-md);
+}
+
+/* Sfondo verde tenue per profit */
+.inv-card-pnl--profit {
+  background: var(--color-success-bg);
+  color: var(--color-success);
+}
+/* Sfondo rosso tenue per loss */
+.inv-card-pnl--loss {
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+}
+
+/* Valore P&L in €: grande e grassetto */
+.inv-card-pnl-euro {
+  font-size: 1.25rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+/* Percentuale P&L: più piccola, ma prominente */
+.inv-card-pnl-pct {
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+/* ---- Dati: 2-col label/valore con separatore ---- */
+.inv-card-data {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0 1rem 0.25rem;
+  border-top: 1px solid var(--color-border-light);
+}
+
+.inv-card-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.3rem 0;
+  border-bottom: 1px solid var(--color-border-light);
+  font-size: 0.8rem;
+}
+.inv-card-row:last-child { border-bottom: none; }
+
+.inv-card-label {
+  color: var(--color-text-secondary);
+  font-weight: 500;
+}
+
+.inv-card-val {
+  color: var(--color-text);
+  font-weight: 600;
+  text-align: right;
+}
+
+/* Valore totale (Current Value): leggermente più grande */
+.inv-card-val--value {
+  font-size: 0.88rem;
+  color: var(--color-primary);
+}
+
+/* Data aggiornamento prezzo: piccola e muted */
+.inv-card-updated {
+  display: block;
+  font-size: 0.65rem;
+  font-weight: 400;
+  color: var(--color-text-muted);
+  text-align: right;
+}
+
+/* Prezzo non disponibile */
+.inv-card-no-price { color: var(--color-text-muted); }
+
+/* ---- Footer azioni ---- */
+.inv-card-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.25rem;
+  padding: 0.6rem 0.75rem;
+  border-top: 1px solid var(--color-border-light);
+  background: var(--color-surface-hover);
+}
+
+/* Dark mode: aggiusta i colori P&L che usano bg fissi */
+[data-theme="dark"] .inv-card-pnl--profit {
+  background: rgba(52, 211, 153, 0.12);
+  color: var(--color-success);
+}
+[data-theme="dark"] .inv-card-pnl--loss {
+  background: rgba(248, 113, 113, 0.12);
+  color: var(--color-danger);
 }
 
 /* ======================== CONTI DEPOSITO ======================== */
@@ -1338,6 +1714,21 @@ tbody tr:last-child td {
 }
 
 /* ======================== INVESTMENT CHART ======================== */
+/* Header del pie chart allocazione: titolo a sinistra, toggle a destra */
+.inv-pie-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 1rem 1.5rem 0.75rem;
+}
+
+.inv-pie-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
 .inv-chart-header {
   display: flex;
   align-items: center;
@@ -2372,6 +2763,19 @@ input[type="file"]::file-selector-button:hover {
   #btn-theme-toggle-desktop {
     display: none;
   }
+
+  /* Budget bars: forza colonna singola su mobile.
+     Il minmax(260px, 1fr) della griglia desktop va sotto i 260px disponibili
+     su schermi stretti, causando overflow orizzontale e barre invisibili. */
+  .budget-bars {
+    grid-template-columns: 1fr;
+  }
+
+  /* Riduce il padding laterale della sezione budget su mobile
+     per guadagnare spazio utile alle barre */
+  .budget-overview-section {
+    padding: 1rem;
+  }
 }
 
 /* Su desktop il toggle mobile nel header-right non serve (c'è quello nella nav) */
@@ -2756,10 +3160,8 @@ input[type="file"]::file-selector-button:hover {
   transition: width 0.4s ease;
 }
 
-/* Tre colori in base alla percentuale */
-.budget-bar-ok      { background: var(--color-success); }
-.budget-bar-warning { background: var(--color-warning); }
-.budget-bar-danger  { background: var(--color-danger); }
+/* Il colore della barra è calcolato inline in JS da budgetBarColor(pct):
+   verde (hue 120) → giallo → arancione → rosso (hue 0) in modo continuo */
 
 /* ======================== BUDGET SETTINGS ======================== */
 
