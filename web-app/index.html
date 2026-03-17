@@ -1232,6 +1232,54 @@
   </div>
 </div>
 
+<!-- Modal: Account Detail — aperto con doppio click su un chip conto -->
+<!-- Mostra saldo attuale, stats ultimi 30gg, grafico daily balance filtrato per conto, tabella tx -->
+<div class="modal-overlay hidden" id="modal-account-detail">
+  <div class="modal modal-account-detail">
+    <div class="modal-header">
+      <!-- Il titolo viene aggiornato dinamicamente con il nome del conto -->
+      <h3 id="account-detail-title">Account Detail</h3>
+      <button class="modal-close" data-close="modal-account-detail"><i data-lucide="x"></i></button>
+    </div>
+    <div class="modal-body">
+
+      <!-- Riga statistiche: saldo attuale, entrate 30gg, uscite 30gg -->
+      <div class="account-detail-stats" id="account-detail-stats">
+        <!-- Popolato dinamicamente da openAccountDetailModal() -->
+      </div>
+
+      <!-- Grafico: saldo giornaliero del conto negli ultimi 30 giorni -->
+      <div class="account-detail-chart-wrap">
+        <canvas id="chart-account-detail"></canvas>
+      </div>
+
+      <!-- Tabella transazioni ultimi 30gg per questo conto -->
+      <div class="account-detail-table-wrap">
+        <h4 class="account-detail-table-title">Transactions — last 30 days</h4>
+        <div class="table-scroll">
+          <table class="tx-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Category</th>
+                <th>Description</th>
+                <th class="text-right">Amount</th>
+              </tr>
+            </thead>
+            <tbody id="account-detail-tbody">
+              <!-- Popolato dinamicamente -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" data-close="modal-account-detail">Close</button>
+    </div>
+  </div>
+</div>
+
 <!-- Toast container -->
 <div class="toast-container" id="toast-container"></div>
 

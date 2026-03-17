@@ -1179,10 +1179,13 @@ function renderMainPage() {
   for (const [conto, saldo] of Object.entries(wallet.saldoConti)) {
     const chip = document.createElement("div");
     chip.className = "balance-chip";
+    chip.title = "Double-click to see account detail";
     chip.innerHTML = `
       <span class="balance-chip-name">${conto.charAt(0).toUpperCase() + conto.slice(1)}</span>
       <span class="balance-chip-value ${saldo >= 0 ? 'positive' : 'negative'}">${saldo.toFixed(2)} &euro;</span>
     `;
+    // Doppio click: apre il modal dettaglio per questo conto
+    chip.addEventListener("dblclick", () => openAccountDetailModal(conto));
     balancesDiv.appendChild(chip);
   }
 
@@ -1641,6 +1644,17 @@ function renderBudgetSection() {
   }
 
   // ——— Barre per categoria ———
+  // Per il tooltip: recupera le tx del mese corrente escludendo giroconti (Type 4)
+  const now2 = new Date();
+  const currentMonth = now2.getMonth() + 1;
+  const currentYear  = now2.getFullYear();
+  const monthTxAll = wallet.transactions.filter(t =>
+    t.Y === currentYear && t.M === currentMonth && t.Type !== 4
+  );
+  const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+  const tooltip = document.getElementById("budget-breakdown-tooltip");
+
   budgetEntries.forEach(([cat, limit]) => {
     // Usa la spesa netta calcolata dall'helper (già depurata da rimborsi)
     const spent = netByCategory[cat] || 0;
@@ -1660,11 +1674,67 @@ function renderBudgetSection() {
           ${isOver ? '<span class="budget-over-badge">Over!</span>' : `(${(100 - pct).toFixed(0)}% left)`}
         </span>
       </div>
-      <div class="budget-bar-track">
+      <div class="budget-bar-track budget-bar-track-cat" data-cat="${cat}">
         <div class="budget-bar-fill" style="width:${pct.toFixed(1)}%; background:${barColor}"></div>
       </div>
     `;
     barsDiv.appendChild(item);
+
+    // ——— Tooltip hover barra categoria: mostra le singole spese di quella categoria ———
+    if (!tooltip) return;
+
+    const barTrack = item.querySelector(".budget-bar-track-cat");
+
+    // Recupera tutte le tx (spese + rimborsi) della categoria nel mese corrente
+    const catTx = monthTxAll
+      .filter(t => t.Category === cat && (t.Type === 0 || t.Type === 1))
+      .sort((a, b) => {
+        // Ordine cronologico decrescente (più recenti in cima)
+        const da = new Date(a.Y, a.M - 1, a.D);
+        const db = new Date(b.Y, b.M - 1, b.D);
+        return db - da;
+      });
+
+    barTrack.addEventListener("mouseenter", () => {
+      if (catTx.length === 0) {
+        tooltip.innerHTML = `<div class="bbt-header">${cat}</div><div class="bbt-row" style="color:var(--color-text-muted)">No transactions</div>`;
+      } else {
+        // Costruisce righe per ogni transazione: data | descrizione | importo
+        const rows = catTx.map(t => {
+          const dateStr = `${String(t.D).padStart(2,"0")} ${monthNames[t.M - 1]}`;
+          const sign    = t.Amount >= 0 ? "+" : "";
+          const cls     = t.Amount >= 0 ? "positive" : "negative";
+          const desc    = t.Description || "—";
+          return `<div class="bbt-row">
+            <span class="bbt-cat" style="min-width:3rem;color:var(--color-text-muted)">${dateStr}</span>
+            <span class="bbt-cat" style="flex:2">${desc}</span>
+            <span class="bbt-amount ${cls}">${sign}${Math.abs(t.Amount).toFixed(2)} €</span>
+          </div>`;
+        }).join("");
+
+        tooltip.innerHTML = `
+          <div class="bbt-header">${cat}</div>
+          ${rows}
+          <div class="bbt-total">
+            <span>Net spent</span>
+            <span>${spent.toFixed(2)} € / ${limit.toFixed(2)} €</span>
+          </div>`;
+      }
+      tooltip.classList.remove("hidden");
+    });
+
+    barTrack.addEventListener("mousemove", (e) => {
+      // Posiziona il tooltip vicino al cursore, stesso comportamento del tooltip totale
+      const x = e.clientX + 14;
+      const y = e.clientY - 10;
+      const maxX = window.innerWidth - tooltip.offsetWidth - 16;
+      tooltip.style.left = `${Math.min(x, maxX)}px`;
+      tooltip.style.top  = `${y}px`;
+    });
+
+    barTrack.addEventListener("mouseleave", () => {
+      tooltip.classList.add("hidden");
+    });
   });
 }
 
@@ -2233,12 +2303,230 @@ function renderAccountsOverview() {
   for (const [conto, saldo] of Object.entries(wallet.saldoConti)) {
     const chip = document.createElement("div");
     chip.className = "balance-chip";
+    chip.title = "Double-click to see account detail";
     chip.innerHTML = `
       <span class="balance-chip-name">${conto.charAt(0).toUpperCase() + conto.slice(1)}</span>
       <span class="balance-chip-value ${saldo >= 0 ? 'positive' : 'negative'}">${saldo.toFixed(2)} &euro;</span>
     `;
+    // Doppio click: apre il modal dettaglio per questo conto
+    chip.addEventListener("dblclick", () => openAccountDetailModal(conto));
     listEl.appendChild(chip);
   }
+}
+
+// Istanza Chart del modal dettaglio conto (distrutta e ricreata ad ogni apertura)
+let accountDetailChartInstance = null;
+
+/**
+ * openAccountDetailModal — apre il modal "Account Detail" per un conto specifico.
+ *
+ * Mostra:
+ *   - 3 stat: saldo attuale, totale entrate ultimi 30gg, totale uscite ultimi 30gg
+ *   - Grafico daily balance filtrato sul conto, calcolato su TUTTO lo storico ma
+ *     mostrato solo per gli ultimi 30 giorni (con starting balance corretto)
+ *   - Tabella delle transazioni degli ultimi 30gg per quel conto
+ *
+ * @param {string} conto - Nome del conto (es. "fineco", "revolut")
+ */
+function openAccountDetailModal(conto) {
+  // --- Calcolo finestra temporale: oggi - 30 giorni ---
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const cutoff = new Date(today);
+  cutoff.setDate(cutoff.getDate() - 30);
+
+  // Helper: costruisce una data JS da {Y, M, D} di una transazione
+  const txDate = t => new Date(t.Y, t.M - 1, t.D);
+
+  // --- Filtra le transazioni per questo conto ---
+  // Includiamo TUTTI i tipi (anche Type 4 trasferimento) perché influenzano il saldo del conto
+  const allForConto = wallet.transactions.filter(t => t.Conto === conto);
+
+  // Tx degli ultimi 30gg per il conto (per tabella e stats)
+  const recentForConto = allForConto.filter(t => txDate(t) >= cutoff);
+
+  // --- Statistiche ---
+  const saldo = wallet.saldoConti[conto] ?? 0;
+
+  // Entrate (Amount > 0) e uscite (Amount < 0) negli ultimi 30gg, escluso saldo iniziale (Type 2/3)
+  const entrate = recentForConto
+    .filter(t => t.Amount > 0 && t.Type !== 2 && t.Type !== 3)
+    .reduce((s, t) => s + t.Amount, 0);
+  const uscite = recentForConto
+    .filter(t => t.Amount < 0 && t.Type !== 2 && t.Type !== 3)
+    .reduce((s, t) => s + t.Amount, 0);
+
+  // --- Aggiorna header modal ---
+  document.getElementById("account-detail-title").textContent =
+    `${conto.charAt(0).toUpperCase() + conto.slice(1)} — Last 30 Days`;
+
+  // --- Popola le stat card ---
+  const statsEl = document.getElementById("account-detail-stats");
+  statsEl.innerHTML = `
+    <div class="account-detail-stat">
+      <span class="account-detail-stat-label">Current Balance</span>
+      <span class="account-detail-stat-value ${saldo >= 0 ? 'positive' : 'negative'}">${saldo.toFixed(2)} €</span>
+    </div>
+    <div class="account-detail-stat">
+      <span class="account-detail-stat-label">Income (30d)</span>
+      <span class="account-detail-stat-value positive">+${entrate.toFixed(2)} €</span>
+    </div>
+    <div class="account-detail-stat">
+      <span class="account-detail-stat-label">Expenses (30d)</span>
+      <span class="account-detail-stat-value negative">${uscite.toFixed(2)} €</span>
+    </div>
+  `;
+
+  // --- Popola tabella transazioni ---
+  const tbody = document.getElementById("account-detail-tbody");
+  tbody.innerHTML = "";
+  // Ordina per data decrescente (più recenti prima)
+  const sorted = [...recentForConto].sort((a, b) => {
+    const da = new Date(a.Y, a.M - 1, a.D);
+    const db = new Date(b.Y, b.M - 1, b.D);
+    return db - da;
+  });
+  const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  if (sorted.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="4" class="empty-state" style="text-align:center;padding:1rem;color:var(--color-text-secondary)">No transactions in the last 30 days</td></tr>`;
+  } else {
+    for (const t of sorted) {
+      const dateStr = `${String(t.D).padStart(2,"0")} ${monthNames[t.M - 1]}`;
+      const cls = t.Amount >= 0 ? "positive" : "negative";
+      const sign = t.Amount >= 0 ? "+" : "";
+      // Type 4 = trasferimento: mostro una label dedicata
+      const catLabel = t.Type === 4 ? "⇄ Transfer" : (t.Category || "—");
+      const row = document.createElement("tr");
+      row.innerHTML = `
+        <td style="white-space:nowrap">${dateStr}</td>
+        <td>${catLabel}</td>
+        <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.Description || "—"}</td>
+        <td class="text-right ${cls}" style="font-family:var(--font-mono);font-weight:600">${sign}${t.Amount.toFixed(2)} €</td>
+      `;
+      tbody.appendChild(row);
+    }
+  }
+
+  // --- Costruisce grafico daily balance per il conto negli ultimi 30gg ---
+  renderAccountDetailChart(conto, allForConto, cutoff, today);
+
+  // --- Apre il modal ---
+  openModal("modal-account-detail");
+}
+
+/**
+ * renderAccountDetailChart — disegna il grafico a linee del saldo giornaliero
+ * di un singolo conto negli ultimi 30 giorni.
+ *
+ * Algoritmo:
+ *   1. Calcola il saldo "base" (starting balance al giorno cutoff-1) sommando
+ *      tutte le tx del conto più vecchie di 30 giorni.
+ *   2. Costruisce una mappa giornaliera delle variazioni nei 30gg.
+ *   3. Riempie tutti i 30 giorni (anche quelli senza tx) propagando il saldo.
+ *   4. Disegna la linea con fill verso lo zero, colore adattivo verde/rosso.
+ *
+ * @param {string} conto         - Nome del conto
+ * @param {Object[]} allForConto - Tutte le transazioni del conto (storico completo)
+ * @param {Date} cutoff          - Data di inizio finestra (oggi - 30gg)
+ * @param {Date} today           - Data odierna
+ */
+function renderAccountDetailChart(conto, allForConto, cutoff, today) {
+  // Distruggi l'istanza precedente per evitare memory leak
+  if (accountDetailChartInstance) {
+    accountDetailChartInstance.destroy();
+    accountDetailChartInstance = null;
+  }
+
+  const canvas = document.getElementById("chart-account-detail");
+  if (!canvas) return;
+
+  // Helper: chiave ISO da Date
+  const toISO = d =>
+    `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+
+  // 1. Saldo base = somma di tutte le tx più vecchie del cutoff
+  const startingBalance = allForConto
+    .filter(t => new Date(t.Y, t.M - 1, t.D) < cutoff)
+    .reduce((s, t) => s + t.Amount, 0);
+
+  // 2. Mappa giornaliera delle variazioni negli ultimi 30gg
+  const dailyDelta = {};
+  for (const t of allForConto) {
+    const d = new Date(t.Y, t.M - 1, t.D);
+    if (d < cutoff || d > today) continue;
+    const key = toISO(d);
+    if (!dailyDelta[key]) dailyDelta[key] = 0;
+    dailyDelta[key] += t.Amount;
+  }
+
+  // 3. Genera array di etichette (tutti i 30 giorni) e saldi cumulativi
+  const labels = [];
+  const balances = [];
+  let running = startingBalance;
+  const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+  for (let i = 0; i <= 30; i++) {
+    const d = new Date(cutoff);
+    d.setDate(d.getDate() + i);
+    if (d > today) break;
+    const key = toISO(d);
+    running += (dailyDelta[key] || 0);
+    // Label compatta per l'asse X: "DD MMM"
+    labels.push(`${String(d.getDate()).padStart(2,"0")} ${monthNames[d.getMonth()]}`);
+    balances.push(parseFloat(running.toFixed(2)));
+  }
+
+  const theme = getChartThemeColors();
+  const lastBalance = balances[balances.length - 1] ?? 0;
+  const isPositive = lastBalance >= 0;
+  const lineColor  = isPositive ? "#10b981" : "#ef4444";
+  const fillColor  = isPositive ? "rgba(16,185,129,0.12)" : "rgba(239,68,68,0.12)";
+
+  Chart.defaults.color       = theme.textColor;
+  Chart.defaults.borderColor = theme.gridColor;
+
+  accountDetailChartInstance = new Chart(canvas.getContext("2d"), {
+    type: "line",
+    data: {
+      labels,
+      datasets: [{
+        label: "Balance",
+        data: balances,
+        borderColor: lineColor,
+        backgroundColor: fillColor,
+        fill: "origin",         // riempie verso y=0
+        tension: 0.2,
+        pointRadius: 2,
+        pointHitRadius: 10,
+        borderWidth: 2
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,   // necessario per rispettare l'altezza fissa del wrapper CSS
+      interaction: { intersect: false, mode: "index" },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => ` Balance: ${ctx.parsed.y.toFixed(2)} €`
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          ticks: { maxTicksLimit: 10, font: { size: 10 } }
+        },
+        y: {
+          ticks: {
+            font: { size: 10 },
+            callback: v => `${v.toFixed(0)} €`
+          }
+        }
+      }
+    }
+  });
 }
 
 /**

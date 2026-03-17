@@ -694,6 +694,8 @@ body {
   box-shadow: var(--shadow-sm);
   white-space: nowrap;
   transition: box-shadow var(--transition), transform var(--transition);
+  cursor: pointer;        /* indica che il chip è interattivo (doppio click) */
+  user-select: none;      /* evita la selezione del testo durante il doppio click */
 }
 
 .balance-chip:hover {
@@ -2046,6 +2048,78 @@ input[type="file"]::file-selector-button {
 .modal-sm { max-width: 380px; }
 .modal-lg { max-width: 680px; }
 
+/* Modal dettaglio conto: più largo per ospitare grafico e tabella */
+.modal-account-detail { max-width: 780px; width: 95vw; }
+
+/* ======================== ACCOUNT DETAIL MODAL ======================== */
+
+/* Riga statistiche: 3 card affiancate (saldo, entrate, uscite) */
+.account-detail-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+/* Singola stat card */
+.account-detail-stat {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 0.85rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.account-detail-stat-label {
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.account-detail-stat-value {
+  font-family: var(--font-mono);
+  font-size: 1.15rem;
+  font-weight: 600;
+}
+
+/* Wrapper canvas grafico — altezza fissa per non ingigantire il modal */
+.account-detail-chart-wrap {
+  position: relative;
+  height: 200px;
+  margin-bottom: 1.25rem;
+}
+
+.account-detail-chart-wrap canvas {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* Titoletto sopra la tabella tx */
+.account-detail-table-title {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.5rem;
+}
+
+/* Wrapper tabella con max-height e scroll */
+.account-detail-table-wrap .table-scroll {
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+/* Responsive: su mobile le 3 stat diventano colonna */
+@media (max-width: 520px) {
+  .account-detail-stats { grid-template-columns: 1fr; }
+  .modal-account-detail { width: 100vw; border-radius: var(--radius-xl) var(--radius-xl) 0 0; align-self: flex-end; }
+}
+
 @keyframes slideUp {
   from { opacity: 0; transform: translateY(14px) scale(0.98); }
   to   { opacity: 1; transform: translateY(0) scale(1); }
@@ -2365,6 +2439,7 @@ input[type="file"]::file-selector-button {
   height: 5px;
   background: var(--color-bg);
   border-radius: 99px;
+  cursor: pointer;        /* indica che la barra ha un tooltip al hover */
   overflow: hidden;
 }
 
