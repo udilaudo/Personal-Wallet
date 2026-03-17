@@ -339,6 +339,14 @@ function navigateTo(page) {
   if (page === "analytics") {
     renderMainPage();
   }
+
+  // Se si naviga su Investments, ri-renderizza il pie chart Portfolio Allocation.
+  // Il chart viene creato al startup quando la pagina è ancora hidden, quindi
+  // Chart.js non riesce a misurare il canvas e il render è vuoto.
+  // Chiamarlo qui garantisce che il canvas sia visibile e abbia dimensioni reali.
+  if (page === "investments") {
+    renderInvestmentsPieChart();
+  }
 }
 
 function bindMobileNav() {

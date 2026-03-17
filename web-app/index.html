@@ -17,19 +17,25 @@
 </head>
 <body>
 
-<!-- ======================== HEADER ======================== -->
-<header class="app-header">
-  <div class="header-left">
-    <!-- Logo: usa ico.png al posto dell'icona Lucide wallet -->
+<!-- ======================== APP LAYOUT: sidebar sinistra + corpo destra ======================== -->
+<div class="app-layout">
+
+<!-- ======================== SIDEBAR (desktop, sempre visibile) ======================== -->
+<aside class="sidebar" id="sidebar">
+
+  <!-- Logo in cima alla sidebar -->
+  <div class="sidebar-header">
     <div class="logo-icon"><img src="ico.png" alt="Wallet logo" class="logo-img" /></div>
-    <h1 class="logo">Wallet</h1>
+    <span class="logo">Wallet</span>
   </div>
-  <nav class="header-nav">
+
+  <!-- Link di navigazione principali -->
+  <nav class="sidebar-nav">
     <button class="nav-btn active" data-page="main">
       <i data-lucide="layout-dashboard"></i>
       <span>Dashboard</span>
     </button>
-    <!-- Analytics: pagina dedicata con filtri, tabella completa e grafici -->
+    <!-- Analytics: pagina dedicata con filtri, tabella e grafici -->
     <button class="nav-btn" data-page="analytics">
       <i data-lucide="bar-chart-2"></i>
       <span>Analytics</span>
@@ -43,26 +49,20 @@
       <i data-lucide="repeat"></i>
       <span>Subscriptions</span>
     </button>
-    <!-- Separatore e toggle tema visibile su desktop -->
-    <span class="nav-separator"></span>
+  </nav>
+
+  <!-- Footer sidebar: toggle tema + impostazioni -->
+  <div class="sidebar-footer">
     <button class="btn-icon-header" id="btn-theme-toggle-desktop" title="Toggle theme">
       <i data-lucide="moon"></i>
     </button>
-    <!-- Settings come icona ingranaggio, non voce di nav principale -->
     <button class="nav-btn nav-btn-settings" data-page="settings" title="Settings">
       <i data-lucide="settings"></i>
-    </button>
-  </nav>
-  <div class="header-right">
-    <!-- Pulsante toggle tema chiaro/scuro -->
-    <button class="btn-icon-header" id="btn-theme-toggle" title="Toggle theme">
-      <i data-lucide="moon"></i>
-    </button>
-    <button class="btn-icon-header" id="btn-mobile-menu" title="Menu">
-      <i data-lucide="menu"></i>
+      <span>Settings</span>
     </button>
   </div>
-</header>
+
+</aside>
 
 <!-- ======================== MOBILE NAV OVERLAY ======================== -->
 <div class="mobile-nav-overlay hidden" id="mobile-nav-overlay">
@@ -77,6 +77,23 @@
     </nav>
   </div>
 </div>
+
+<!-- ======================== APP BODY (area scrollabile a destra della sidebar) ======================== -->
+<div class="app-body">
+
+<!-- Topbar mobile: visibile solo su schermi ≤768px al posto della sidebar -->
+<header class="app-topbar">
+  <button class="btn-icon-header" id="btn-mobile-menu" title="Menu">
+    <i data-lucide="menu"></i>
+  </button>
+  <div class="topbar-logo">
+    <div class="logo-icon logo-icon-sm"><img src="ico.png" alt="Wallet logo" class="logo-img" /></div>
+    <span class="logo">Wallet</span>
+  </div>
+  <button class="btn-icon-header" id="btn-theme-toggle" title="Toggle theme">
+    <i data-lucide="moon"></i>
+  </button>
+</header>
 
 <!-- ======================== MAIN CONTENT ======================== -->
 <main class="main-content">
@@ -675,6 +692,9 @@
   </section>
 
 </main>
+
+</div><!-- /app-body -->
+</div><!-- /app-layout -->
 
 <!-- ======================== FAB (speed-dial) ======================== -->
 <!-- Il FAB principale apre un mini-menu con Add Transaction e Transfer -->
