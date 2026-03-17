@@ -903,6 +903,10 @@ function renderRecentTransactions() {
       if (t.Type === 1 || t.Type === 3) tr.className = "row-income";
       else if (t.Type === 4) tr.className = "row-transfer";
 
+      // Memorizza l'ID sul tr per il dblclick
+      tr.dataset.txId = t.ID;
+      tr.dataset.txType = t.Type;
+
       const dateStr = `${String(t.D).padStart(2,"0")}/${String(t.M).padStart(2,"0")}/${t.Y}`;
       tr.innerHTML = `
         <td class="amount ${t.Amount >= 0 ? "positive" : "negative"}">${t.Amount.toFixed(2)} &euro;</td>
@@ -927,6 +931,27 @@ function renderRecentTransactions() {
     tbody.querySelectorAll("[data-dash-edit-id]").forEach(btn => {
       btn.addEventListener("click", () => {
         const t = wallet.transactions.find(t => t.ID === parseInt(btn.dataset.dashEditId));
+        if (!t) return;
+        document.getElementById("edit-id").value = t.ID;
+        document.getElementById("edit-type").value = t.Type === 1 ? "1" : "0";
+        document.getElementById("edit-amount").value = Math.abs(t.Amount).toFixed(2);
+        document.getElementById("edit-category").value = t.Category;
+        document.getElementById("edit-description").value = t.Description;
+        document.getElementById("edit-account").value = t.Conto;
+        document.getElementById("edit-date").value = `${t.Y}-${String(t.M).padStart(2,"0")}-${String(t.D).padStart(2,"0")}`;
+        openModal("modal-edit");
+      });
+    });
+
+    // Doppio click su riga → apri modifica (solo transazioni non-trasferimento)
+    tbody.querySelectorAll("tr[data-tx-id]").forEach(tr => {
+      tr.style.cursor = "default";
+      if (parseInt(tr.dataset.txType) === 4) return; // i trasferimenti non si modificano
+      tr.style.cursor = "pointer";
+      tr.addEventListener("dblclick", (e) => {
+        // Evita di aprire il modal se si fa doppio click su un pulsante
+        if (e.target.closest("button")) return;
+        const t = wallet.transactions.find(t => t.ID === parseInt(tr.dataset.txId));
         if (!t) return;
         document.getElementById("edit-id").value = t.ID;
         document.getElementById("edit-type").value = t.Type === 1 ? "1" : "0";
@@ -1025,6 +1050,10 @@ function renderMainPage() {
         tr.className = "row-transfer";
       }
 
+      // Memorizza l'ID sul tr per il dblclick
+      tr.dataset.txId = t.ID;
+      tr.dataset.txType = t.Type;
+
       const dateStr = `${String(t.D).padStart(2, "0")}/${String(t.M).padStart(2, "0")}/${t.Y}`;
       const typeLabels = { 0: "Expense", 1: "Income", 2: "Balance Out", 3: "Balance In", 4: "Transfer" };
 
@@ -1068,6 +1097,26 @@ function renderMainPage() {
       document.getElementById("edit-account").value = t.Conto;
       document.getElementById("edit-date").value = `${t.Y}-${String(t.M).padStart(2, "0")}-${String(t.D).padStart(2, "0")}`;
 
+      openModal("modal-edit");
+    });
+  });
+
+  // Doppio click su riga Analytics → apri modifica (solo transazioni non-trasferimento)
+  document.querySelectorAll("#transactions-body tr[data-tx-id]").forEach(tr => {
+    tr.style.cursor = "default";
+    if (parseInt(tr.dataset.txType) === 4) return;
+    tr.style.cursor = "pointer";
+    tr.addEventListener("dblclick", (e) => {
+      if (e.target.closest("button")) return;
+      const t = wallet.transactions.find(t => t.ID === parseInt(tr.dataset.txId));
+      if (!t) return;
+      document.getElementById("edit-id").value = t.ID;
+      document.getElementById("edit-type").value = t.Type === 1 ? "1" : "0";
+      document.getElementById("edit-amount").value = Math.abs(t.Amount).toFixed(2);
+      document.getElementById("edit-category").value = t.Category;
+      document.getElementById("edit-description").value = t.Description;
+      document.getElementById("edit-account").value = t.Conto;
+      document.getElementById("edit-date").value = `${t.Y}-${String(t.M).padStart(2, "0")}-${String(t.D).padStart(2, "0")}`;
       openModal("modal-edit");
     });
   });
@@ -2218,17 +2267,17 @@ function renderNetworthPieChart() {
   // ——— Popola il lato destro con le cifre ———
   const valuesDiv = document.getElementById("networth-values");
   if (valuesDiv) {
-    // nav: pagina di destinazione al click
+    // nav: pagina di destinazione; scroll: ID elemento su cui scrollare dopo la navigazione
     const items = [
-      { label: "Cash",            value: liquidita,      color: colors[0], nav: "main"        },
-      { label: "Investments",     value: investmentsVal, color: colors[1], nav: "investments" },
-      { label: "Deposit Accounts",value: depositsVal,    color: colors[2], nav: "investments" }
+      { label: "Cash",             value: liquidita,      color: colors[0], nav: "analytics",   scroll: "transactions-body"           },
+      { label: "Investments",      value: investmentsVal, color: colors[1], nav: "investments",  scroll: "investments-table-container" },
+      { label: "Deposit Accounts", value: depositsVal,    color: colors[2], nav: "investments",  scroll: "deposit-table-card"          }
     ];
 
     valuesDiv.innerHTML = items.map(item => {
       const pct = total > 0 ? (item.value / total * 100).toFixed(1) : "0.0";
       return `
-        <div class="networth-item networth-item-link" data-nav="${item.nav}" title="Go to ${item.label}">
+        <div class="networth-item networth-item-link" data-nav="${item.nav}" data-scroll="${item.scroll}" title="Go to ${item.label}">
           <div class="networth-item-dot" style="background:${item.color}"></div>
           <span class="networth-item-label">${item.label}</span>
           <div>
@@ -2244,9 +2293,16 @@ function renderNetworthPieChart() {
       </div>
     `;
 
-    // Naviga alla pagina corrispondente al click sulla riga
+    // Naviga alla pagina e scrolla all'elemento target
     valuesDiv.querySelectorAll(".networth-item-link").forEach(el => {
-      el.addEventListener("click", () => navigateTo(el.dataset.nav));
+      el.addEventListener("click", () => {
+        navigateTo(el.dataset.nav);
+        // Aspetta che la pagina sia visibile prima di scrollare
+        requestAnimationFrame(() => {
+          const target = document.getElementById(el.dataset.scroll);
+          if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
+        });
+      });
     });
   }
 
@@ -2804,6 +2860,7 @@ function renderInvestmentsPage() {
 
     const tr = document.createElement("tr");
     tr.className = isPositive ? "row-inv-profit" : "row-inv-loss";
+    tr.dataset.invId = inv.id; // usato per il dblclick
     tr.innerHTML = `
       <td class="inv-name-cell">
         <strong>${inv.name}</strong>
@@ -2969,6 +3026,25 @@ function renderInvestmentsPage() {
       document.getElementById("inv-edit-quantity").value = inv.quantity;
       document.getElementById("inv-edit-date").value     = inv.purchaseDate || "";
 
+      openModal("modal-edit-inv");
+    });
+  });
+
+  // Doppio click su riga tabella investimenti → apri modifica
+  document.querySelectorAll("[data-inv-id]").forEach(tr => {
+    tr.style.cursor = "pointer";
+    tr.addEventListener("dblclick", (e) => {
+      if (e.target.closest("button")) return;
+      const inv = investments.find(i => i.id === parseInt(tr.dataset.invId));
+      if (!inv) return;
+      document.getElementById("inv-edit-id").value       = inv.id;
+      document.getElementById("inv-edit-name").value     = inv.name;
+      document.getElementById("inv-edit-ticker").value   = inv.ticker  || "";
+      document.getElementById("inv-edit-isin").value     = inv.isin    || "";
+      document.getElementById("inv-edit-type").value     = inv.type;
+      document.getElementById("inv-edit-price").value    = inv.purchasePrice;
+      document.getElementById("inv-edit-quantity").value = inv.quantity;
+      document.getElementById("inv-edit-date").value     = inv.purchaseDate || "";
       openModal("modal-edit-inv");
     });
   });
