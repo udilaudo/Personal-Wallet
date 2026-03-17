@@ -910,6 +910,67 @@
   </div>
 </div>
 
+<!-- Modal: Edit Investment -->
+<!-- Stessa struttura del modal Add, ma con campi pre-popolati e id nascosto -->
+<div class="modal-overlay hidden" id="modal-edit-inv">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Edit Investment</h3>
+      <button class="modal-close" data-close="modal-edit-inv"><i data-lucide="x"></i></button>
+    </div>
+    <div class="modal-body">
+      <!-- Campo nascosto: ID dell'investimento da modificare -->
+      <input type="hidden" id="inv-edit-id" />
+      <div class="form-row">
+        <div class="form-group">
+          <label>Name</label>
+          <input type="text" id="inv-edit-name" class="input" />
+        </div>
+        <div class="form-group">
+          <label>Ticker (Yahoo Finance)</label>
+          <input type="text" id="inv-edit-ticker" class="input" />
+          <small class="input-hint">Borsa Italiana: add .MI (e.g. ENI.MI)</small>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>ISIN (optional)</label>
+          <input type="text" id="inv-edit-isin" class="input" />
+        </div>
+        <div class="form-group">
+          <label>Type</label>
+          <select id="inv-edit-type" class="input">
+            <option value="ETF">ETF</option>
+            <option value="BTP">BTP</option>
+            <option value="Stock">Stock</option>
+            <option value="Fund">Fund</option>
+            <option value="Bond">Bond</option>
+            <option value="Crypto">Crypto</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Purchase Price (&euro;)</label>
+          <input type="number" id="inv-edit-price" min="0" step="0.01" class="input" />
+        </div>
+        <div class="form-group">
+          <label>Quantity</label>
+          <input type="number" id="inv-edit-quantity" min="0" step="0.001" class="input" />
+        </div>
+        <div class="form-group">
+          <label>Purchase Date</label>
+          <input type="date" id="inv-edit-date" class="input" />
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" data-close="modal-edit-inv">Cancel</button>
+      <button class="btn btn-primary" id="btn-save-inv-edit">Save Changes</button>
+    </div>
+  </div>
+</div>
+
 <!-- Modal: Update Price Manually -->
 <div class="modal-overlay hidden" id="modal-manual-price">
   <div class="modal modal-sm">

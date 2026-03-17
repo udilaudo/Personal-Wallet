@@ -2830,6 +2830,7 @@ function renderInvestmentsPage() {
         <div class="inv-actions">
           <button class="btn-icon" title="Chart" data-inv-chart="${inv.id}"><i data-lucide="line-chart"></i></button>
           <button class="btn-icon" title="Refresh" data-inv-refresh="${inv.id}"><i data-lucide="refresh-cw"></i></button>
+          <button class="btn-icon" title="Edit" data-inv-edit="${inv.id}"><i data-lucide="pencil"></i></button>
           <button class="btn-icon btn-icon-danger" title="Remove" data-inv-remove="${inv.id}"><i data-lucide="trash-2"></i></button>
         </div>
       </td>
@@ -2900,6 +2901,9 @@ function renderInvestmentsPage() {
           <button class="btn-icon" title="Refresh price" data-inv-refresh="${inv.id}">
             <i data-lucide="refresh-cw"></i>
           </button>
+          <button class="btn-icon" title="Edit" data-inv-edit="${inv.id}">
+            <i data-lucide="pencil"></i>
+          </button>
           <button class="btn-icon btn-icon-danger" title="Remove" data-inv-remove="${inv.id}">
             <i data-lucide="trash-2"></i>
           </button>
@@ -2947,6 +2951,70 @@ function renderInvestmentsPage() {
       }
     });
   });
+
+  // Bind edit buttons: apre il modal pre-popolato con i dati dell'investimento
+  document.querySelectorAll("[data-inv-edit]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const id  = parseInt(btn.dataset.invEdit);
+      const inv = investments.find(i => i.id === id);
+      if (!inv) return;
+
+      // Popola tutti i campi del modal con i valori attuali dell'investimento
+      document.getElementById("inv-edit-id").value       = inv.id;
+      document.getElementById("inv-edit-name").value     = inv.name;
+      document.getElementById("inv-edit-ticker").value   = inv.ticker  || "";
+      document.getElementById("inv-edit-isin").value     = inv.isin    || "";
+      document.getElementById("inv-edit-type").value     = inv.type;
+      document.getElementById("inv-edit-price").value    = inv.purchasePrice;
+      document.getElementById("inv-edit-quantity").value = inv.quantity;
+      document.getElementById("inv-edit-date").value     = inv.purchaseDate || "";
+
+      openModal("modal-edit-inv");
+    });
+  });
+
+  // Bind del pulsante "Save Changes" nel modal edit
+  // Clona il nodo per rimuovere eventuali listener precedenti (evita duplicati al re-render)
+  const btnSaveEdit = document.getElementById("btn-save-inv-edit");
+  if (btnSaveEdit) {
+    const freshBtn = btnSaveEdit.cloneNode(true);
+    btnSaveEdit.parentNode.replaceChild(freshBtn, btnSaveEdit);
+
+    freshBtn.addEventListener("click", () => {
+      const id  = parseInt(document.getElementById("inv-edit-id").value);
+      const inv = investments.find(i => i.id === id);
+      if (!inv) return;
+
+      // Legge i valori dal form e aggiorna l'oggetto investimento
+      const name     = document.getElementById("inv-edit-name").value.trim();
+      const ticker   = document.getElementById("inv-edit-ticker").value.trim();
+      const isin     = document.getElementById("inv-edit-isin").value.trim();
+      const type     = document.getElementById("inv-edit-type").value;
+      const price    = parseFloat(document.getElementById("inv-edit-price").value);
+      const quantity = parseFloat(document.getElementById("inv-edit-quantity").value);
+      const date     = document.getElementById("inv-edit-date").value;
+
+      // Validazione minima
+      if (!name || isNaN(price) || isNaN(quantity) || price < 0 || quantity <= 0) {
+        showToast("Please fill in all required fields correctly.", "warning");
+        return;
+      }
+
+      // Applica le modifiche (currentPrice e lastUpdated rimangono invariati)
+      inv.name          = name;
+      inv.ticker        = ticker || null;
+      inv.isin          = isin   || null;
+      inv.type          = type;
+      inv.purchasePrice = price;
+      inv.quantity      = quantity;
+      inv.purchaseDate  = date;
+
+      saveInvestments();
+      closeModal("modal-edit-inv");
+      renderInvestmentsPage();
+      showToast(`"${name}" updated successfully!`);
+    });
+  }
 
   // Bind remove buttons: invece di cancellare subito, apre un modal di conferma
   document.querySelectorAll("[data-inv-remove]").forEach(btn => {
