@@ -73,6 +73,9 @@ let invViewMode = localStorage.getItem("inv-view-mode") || "table";
 // true = gli asset vengono raggruppati per tipo (ETF, Crypto, Bond, ecc.)
 let invPieGrouped = false;
 
+// Tiene traccia della pagina attiva corrente (aggiornata da navigateTo)
+let currentPage = "main";
+
 // ======================== CONTI DEPOSITO — STATO GLOBALE ========================
 // Array di conti deposito: ogni elemento ha id, nome, banca, tasso, frequenza,
 // date di apertura/scadenza, conto wallet collegato e lista movimenti interni.
@@ -298,6 +301,42 @@ document.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("btn-theme-toggle-desktop").addEventListener("click", toggleTheme);
 
   // Il grafico principale è già incluso in renderMainPage(), non serve crearlo separatamente.
+
+  // ── Keyboard shortcut: tasto "N" (senza modificatori) ────────────────────
+  // Pattern comune nelle web app (GitHub, Linear, Jira): premi N per aprire
+  // il modal "Add" della pagina corrente.
+  //   main / analytics   → Aggiungi transazione  (modal-add)
+  //   investments        → Aggiungi investimento  (modal-add-inv)
+  //   subscriptions      → Aggiungi abbonamento   (modal-add-sub)
+  //   settings           → (nessuna azione)
+  // La shortcut è disattivata se il focus è su un campo di testo/input
+  // per non interferire con la digitazione normale.
+  document.addEventListener("keydown", (e) => {
+    // Solo tasto N senza nessun modificatore (no Cmd, Ctrl, Alt, Shift)
+    if (e.key !== "n" && e.key !== "N") return;
+    if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+
+    // Disattiva se il focus è su un campo editabile
+    const tag = document.activeElement?.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+    if (document.activeElement?.isContentEditable) return;
+
+    // Disattiva se un modal è già aperto (evita di aprirne due in cascata)
+    if (document.querySelector(".modal-overlay:not(.hidden)")) return;
+
+    e.preventDefault();
+
+    // Mappa pagina → modal da aprire
+    const modalMap = {
+      main:          "modal-add",
+      analytics:     "modal-add",
+      investments:   "modal-add-inv",
+      subscriptions: "modal-add-sub",
+    };
+
+    const modalId = modalMap[currentPage];
+    if (modalId) openModal(modalId);
+  });
 });
 
 // ======================== NAVIGATION ========================
@@ -328,6 +367,9 @@ function navigateTo(page) {
   // Pages
   document.querySelectorAll(".page").forEach(p => p.classList.add("hidden"));
   document.getElementById(`page-${page}`).classList.remove("hidden");
+
+  // Aggiorna la pagina corrente (usata dal listener Cmd+N per aprire il modal corretto)
+  currentPage = page;
 
   // Close mobile nav
   document.getElementById("mobile-nav-overlay").classList.add("hidden");
