@@ -35,6 +35,17 @@ def index():
     return send_from_directory(".", "index.html")
 
 
+@app.route("/favicon.ico")
+def favicon():
+    # Route esplicita per il favicon: evita che il browser usi una versione
+    # in cache di un'altra app (es. Streamlit usa la stessa porta 8501).
+    # Cache-Control: no-cache forza Safari (che è aggressivo sul caching favicon)
+    # a rivalidare l'icona ad ogni visita invece di usare quella vecchia.
+    resp = send_from_directory(".", "ico.png", mimetype="image/png")
+    resp.headers["Cache-Control"] = "no-cache, must-revalidate"
+    return resp
+
+
 @app.route("/<path:path>")
 def static_files(path):
     # Block access to data directory and server.py from browser

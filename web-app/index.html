@@ -6,8 +6,9 @@
   <title>Wallet — Personal Finance</title>
   <!-- Favicon: usa ico.png come icona della web-app nella tab del browser -->
   <!-- rel="icon" per Chrome/Firefox, rel="apple-touch-icon" per Safari/iOS/macOS -->
-  <link rel="icon" type="image/png" href="ico.png" />
-  <link rel="apple-touch-icon" href="ico.png" />
+  <!-- ?v=2: cache-busting per Safari che memorizza favicon in modo aggressivo -->
+  <link rel="icon" type="image/png" sizes="1024x1024" href="ico.png?v=2" />
+  <link rel="apple-touch-icon" sizes="1024x1024" href="ico.png?v=2" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
   <!-- Font stack Financial Noir:
        Syne = display/headings (geometrico, architettonico)
@@ -220,12 +221,12 @@
         <table id="recent-tx-table">
           <thead>
             <tr>
-              <th>Amount</th>
-              <th>Category</th>
-              <th>Description</th>
-              <th>Date</th>
-              <th>Account</th>
-              <th>Type</th>
+              <th class="sortable" data-sort-key="amount">Amount</th>
+              <th class="sortable" data-sort-key="category">Category</th>
+              <th class="sortable" data-sort-key="description">Description</th>
+              <th class="sortable" data-sort-key="date">Date</th>
+              <th class="sortable" data-sort-key="account">Account</th>
+              <th class="sortable" data-sort-key="type">Type</th>
               <th class="th-actions">Actions</th>
             </tr>
           </thead>
@@ -367,12 +368,12 @@
         <table id="transactions-table">
           <thead>
             <tr>
-              <th>Amount</th>
-              <th>Category</th>
-              <th>Description</th>
-              <th>Date</th>
-              <th>Account</th>
-              <th>Type</th>
+              <th class="sortable" data-sort-key="amount">Amount</th>
+              <th class="sortable" data-sort-key="category">Category</th>
+              <th class="sortable" data-sort-key="description">Description</th>
+              <th class="sortable" data-sort-key="date">Date</th>
+              <th class="sortable" data-sort-key="account">Account</th>
+              <th class="sortable" data-sort-key="type">Type</th>
               <th class="th-actions">Actions</th>
             </tr>
           </thead>

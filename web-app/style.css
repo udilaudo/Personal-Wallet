@@ -1305,6 +1305,33 @@ th {
 
 .th-actions { text-align: center; width: 80px; }
 
+/* Sortable column headers */
+th.sortable {
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.15s;
+}
+th.sortable:hover { color: var(--color-primary); }
+
+/* Icona sort di default (neutrale) */
+th.sortable::after {
+  content: " ⇅";
+  opacity: 0.25;
+  font-size: 0.75em;
+  margin-left: 2px;
+}
+/* Icona quando ordinato */
+th.sortable.sort-desc::after {
+  content: " ▼";
+  opacity: 1;
+  color: var(--color-primary);
+}
+th.sortable.sort-asc::after {
+  content: " ▲";
+  opacity: 1;
+  color: var(--color-primary);
+}
+
 td {
   padding: 0.55rem 1rem;
   font-size: 0.84rem;

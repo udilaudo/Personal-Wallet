@@ -76,6 +76,11 @@ let invPieGrouped = false;
 // Tiene traccia della pagina attiva corrente (aggiornata da navigateTo)
 let currentPage = "main";
 
+// Stato ordinamento tabella Dashboard (null = ordine default)
+let dashSortKey = null, dashSortDir = "desc";
+// Stato ordinamento tabella Analytics (null = ordine default)
+let analyticsSortKey = null, analyticsSortDir = "desc";
+
 // ======================== CONTI DEPOSITO — STATO GLOBALE ========================
 // Array di conti deposito: ogni elemento ha id, nome, banca, tasso, frequenza,
 // date di apertura/scadenza, conto wallet collegato e lista movimenti interni.
@@ -289,6 +294,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       if (tableCard) tableCard.closest(".table-card").scrollIntoView({ behavior: "smooth", block: "start" });
     }, 80);
   });
+  bindSortHeaders();           // Sorting colonne tabelle transazioni
   bindInvestmentActions();
   bindDepositAccountActions(); // Binding per la sezione Conti Deposito
   bindMobileNav();
@@ -371,6 +377,9 @@ function navigateTo(page) {
   // Aggiorna la pagina corrente (usata dal listener Cmd+N per aprire il modal corretto)
   currentPage = page;
 
+  // Scroll all'inizio della pagina ad ogni navigazione
+  window.scrollTo({ top: 0, behavior: "instant" });
+
   // Close mobile nav
   document.getElementById("mobile-nav-overlay").classList.add("hidden");
 
@@ -395,12 +404,12 @@ function navigateTo(page) {
     renderInvestmentsPieChart();
   }
 
-  // Se si naviga sulla Dashboard, ri-renderizza il Net Worth Breakdown pie chart.
-  // Stesso problema: se il canvas era hidden quando il chart è stato creato/aggiornato
-  // (es. durante renderMainPage() chiamato da analytics), le dimensioni risultano 0x0.
-  // Qui il canvas è già visibile, quindi il re-render produce dimensioni corrette.
+  // Se si naviga sulla Dashboard, ri-renderizza i chart che soffrono del problema
+  // "canvas hidden → dimensioni 0x0": Net Worth Breakdown e Daily Balance.
+  // Il canvas è già visibile a questo punto, quindi il re-render produce dimensioni corrette.
   if (page === "main") {
     renderNetworthPieChart();
+    renderDailyBalanceChart("chart-daily-balance-dash");
   }
 }
 
@@ -913,6 +922,81 @@ function renderHeroTrendChart() {
  * Supporta ricerca testuale via #dash-tx-search (debounce 150ms).
  * Esclude saldi iniziali (Type 2 e 3).
  */
+/**
+ * Ordina un array di transazioni in base a una colonna e direzione.
+ * key: "amount" | "category" | "description" | "date" | "account" | "type"
+ * dir: "asc" | "desc"
+ * Restituisce un nuovo array (non muta l'originale).
+ * Se key è null restituisce i dati invariati.
+ */
+function sortTransactions(data, key, dir) {
+  if (!key) return data;
+  return [...data].sort((a, b) => {
+    let av, bv;
+    switch (key) {
+      case "amount":      av = a.Amount;  bv = b.Amount;  break;
+      case "category":    av = (a.Category    || "").toLowerCase(); bv = (b.Category    || "").toLowerCase(); break;
+      case "description": av = (a.Description || "").toLowerCase(); bv = (b.Description || "").toLowerCase(); break;
+      case "date":        av = a.Y * 10000 + a.M * 100 + a.D; bv = b.Y * 10000 + b.M * 100 + b.D; break;
+      case "account":     av = (a.Conto || "").toLowerCase(); bv = (b.Conto || "").toLowerCase(); break;
+      case "type":        av = a.Type; bv = b.Type; break;
+      default: return 0;
+    }
+    if (av < bv) return dir === "asc" ? -1 : 1;
+    if (av > bv) return dir === "asc" ?  1 : -1;
+    return 0;
+  });
+}
+
+/**
+ * Aggiorna le classi CSS dei <th> di una tabella per mostrare
+ * l'indicatore visivo della colonna ordinata (▲ / ▼ / ⇅).
+ */
+function updateSortHeaders(tableId, sortKey, sortDir) {
+  document.querySelectorAll(`#${tableId} thead th.sortable`).forEach(th => {
+    th.classList.remove("sort-asc", "sort-desc");
+    if (th.dataset.sortKey === sortKey) {
+      th.classList.add(sortDir === "asc" ? "sort-asc" : "sort-desc");
+    }
+  });
+}
+
+/**
+ * Binding una-tantum degli header sortabili per entrambe le tabelle.
+ * Chiamato una sola volta in DOMContentLoaded.
+ * Al click aggiorna lo stato di sort e ri-renderizza la tabella corrispondente.
+ */
+function bindSortHeaders() {
+  // Dashboard: tabella recent transactions
+  document.querySelectorAll("#recent-tx-table thead th.sortable").forEach(th => {
+    th.addEventListener("click", () => {
+      const key = th.dataset.sortKey;
+      // Stesso tasto → toggle direzione; tasto diverso → desc di default
+      if (dashSortKey === key) {
+        dashSortDir = dashSortDir === "desc" ? "asc" : "desc";
+      } else {
+        dashSortKey = key;
+        dashSortDir = "desc";
+      }
+      renderRecentTransactions();
+    });
+  });
+
+  // Analytics: tabella transazioni filtrate
+  document.querySelectorAll("#transactions-table thead th.sortable").forEach(th => {
+    th.addEventListener("click", () => {
+      const key = th.dataset.sortKey;
+      if (analyticsSortKey === key) {
+        analyticsSortDir = analyticsSortDir === "desc" ? "asc" : "desc";
+      } else {
+        analyticsSortKey = key;
+        analyticsSortDir = "desc";
+      }
+      renderMainPage();
+    });
+  });
+}
+
 function renderRecentTransactions() {
   const tbody = document.getElementById("recent-tx-body");
   if (!tbody) return;
@@ -933,14 +1017,21 @@ function renderRecentTransactions() {
     t => t.Type !== 2 && t.Type !== 3 && t.Y === curY && t.M === curM
   );
 
-  // Funzione di render rows (usata anche dalla ricerca)
+  // Funzione di render rows (usata anche dalla ricerca e dal sort)
   function renderRows(data) {
+    // Applica il sort corrente prima di renderizzare
+    const sorted = sortTransactions(data, dashSortKey, dashSortDir);
+    // Aggiorna l'indicatore visivo sugli header
+    updateSortHeaders("recent-tx-table", dashSortKey, dashSortDir);
+
     tbody.innerHTML = "";
 
-    if (data.length === 0) {
+    if (sorted.length === 0) {
       tbody.innerHTML = '<tr><td colspan="7" class="empty-msg">No transactions for this month.</td></tr>';
       return;
     }
+    // Riassegna data a sorted per il loop sottostante
+    data = sorted;
 
     const typeLabels = { 0: "Expense", 1: "Income", 2: "Balance Out", 3: "Balance In", 4: "Transfer" };
 
@@ -1078,9 +1169,10 @@ function renderMainPage() {
   renderRecentTransactions();
 
   // Ottieni i dati in base ai filtri attivi (filtri vuoti = tutte le transazioni)
-  const data = getFilteredData();
+  // Applica il sort corrente se attivo
+  const data = sortTransactions(getFilteredData(), analyticsSortKey, analyticsSortDir);
 
-  // --- Transaction Table (dati filtrati) ---
+  // --- Transaction Table (dati filtrati e ordinati) ---
   const tbody = document.getElementById("transactions-body");
   tbody.innerHTML = "";
 
@@ -1124,6 +1216,9 @@ function renderMainPage() {
   // Aggiorna il badge con il numero di transazioni mostrate
   const txBadge = document.getElementById("tx-count-badge");
   if (txBadge) txBadge.textContent = data.length;
+
+  // Aggiorna l'indicatore visivo di sort sugli header della tabella Analytics
+  updateSortHeaders("transactions-table", analyticsSortKey, analyticsSortDir);
 
   // Re-init Lucide for new icons
   lucide.createIcons();
