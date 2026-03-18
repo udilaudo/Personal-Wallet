@@ -219,6 +219,32 @@ def fetch_borsa_italiana(isin):
     return None
 
 
+@app.route("/api/fetch-exchange-rate", methods=["GET"])
+def api_fetch_exchange_rate():
+    """
+    Restituisce il tasso di cambio tra due valute usando Yahoo Finance.
+    Esempio: ?from=USD&to=EUR → cerca il ticker USDEUR=X su Yahoo Finance.
+    Se le valute sono uguali, ritorna rate=1.0 direttamente senza chiamate esterne.
+    """
+    from_curr = request.args.get("from", "USD").strip().upper()
+    to_curr   = request.args.get("to", "EUR").strip().upper()
+
+    # Nessuna conversione necessaria se le valute coincidono
+    if from_curr == to_curr:
+        return jsonify({"rate": 1.0, "from": from_curr, "to": to_curr})
+
+    # Ticker Yahoo Finance per i cambi: es. "USDEUR=X"
+    ticker = f"{from_curr}{to_curr}=X"
+    try:
+        result = fetch_yahoo(ticker)
+        if result and result.get("price"):
+            return jsonify({"rate": result["price"], "from": from_curr, "to": to_curr})
+    except Exception as e:
+        print(f"[WARN] Exchange rate fetch failed ({ticker}): {e}")
+
+    return jsonify({"error": f"Could not fetch exchange rate {from_curr}/{to_curr}"}), 404
+
+
 @app.route("/api/fetch-price", methods=["GET"])
 def api_fetch_price():
     """Fetch current price. Cascade: Yahoo (ticker) → Borsa Italiana (ISIN)."""

@@ -3378,6 +3378,63 @@ async function fetchPriceHistory(ticker, range = "1y") {
   }
 }
 
+/**
+ * Fetches the exchange rate between two currencies using the backend endpoint,
+ * which in turn queries Yahoo Finance (e.g. ticker "USDEUR=X").
+ * Returns the rate as a number (e.g. 0.92 for USD→EUR), or null on failure.
+ */
+async function fetchExchangeRate(fromCurrency, toCurrency = "EUR") {
+  // Nessuna conversione necessaria se le valute sono identiche
+  if (fromCurrency === toCurrency) return 1.0;
+  try {
+    const params = new URLSearchParams({ from: fromCurrency, to: toCurrency });
+    const response = await fetch(`/api/fetch-exchange-rate?${params}`, { signal: AbortSignal.timeout(10000) });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    return typeof data.rate === "number" ? data.rate : null;
+  } catch (e) {
+    console.warn(`Exchange rate fetch failed (${fromCurrency}→${toCurrency}):`, e.message);
+    return null;
+  }
+}
+
+/**
+ * Fetch del prezzo corrente e conversione automatica in EUR se necessario.
+ * - priceCurrency: valuta del ticker su Yahoo Finance (es. "USD"), default "EUR"
+ * - Se priceCurrency === "EUR", ritorna il prezzo senza conversione
+ * - Se priceCurrency !== "EUR", recupera il tasso di cambio e moltiplica
+ * Ritorna: { price (EUR), sourceCurrency, exchangeRate, source } oppure null se fallisce
+ */
+async function fetchPriceInEUR(ticker, isin, priceCurrency = "EUR") {
+  // Recupera il prezzo grezzo dalla fonte (Yahoo Finance o Borsa Italiana)
+  const result = await fetchCurrentPrice(ticker, isin);
+  if (!result) return null;
+
+  // La valuta effettiva è SEMPRE quella scelta dall'utente (priceCurrency).
+  // Non usiamo result.currency da Yahoo perché potrebbe non corrispondere:
+  // es. ticker "PENGU34466-USD" restituisce currency="USD" anche se l'utente
+  // ha scelto EUR (magari usa un ticker diverso che quota in euro).
+  // priceCurrency è l'autorità: se l'utente dice EUR → nessuna conversione.
+  const sourceCurrency = priceCurrency || "EUR";
+
+  // Nessuna conversione necessaria
+  if (sourceCurrency === "EUR") {
+    return { price: result.price, sourceCurrency: "EUR", exchangeRate: 1.0, source: result.source };
+  }
+
+  // Recupera il tasso di cambio per convertire in EUR
+  const rate = await fetchExchangeRate(sourceCurrency, "EUR");
+  if (rate === null) {
+    // Fallback: usa il prezzo grezzo senza conversione e avvisa in console
+    console.warn(`[fetchPriceInEUR] Impossibile ottenere il cambio ${sourceCurrency}→EUR. Prezzo non convertito.`);
+    return { price: result.price, sourceCurrency, exchangeRate: null, conversionFailed: true, source: result.source };
+  }
+
+  // Converti in EUR e restituisci con metadati di conversione
+  const priceEUR = result.price * rate;
+  return { price: priceEUR, sourceCurrency, exchangeRate: rate, rawPrice: result.price, source: result.source };
+}
+
 function renderInvestmentsPage() {
   // Populate selects
   const manualSelect = document.getElementById("inv-manual-select");
@@ -3594,22 +3651,32 @@ function renderInvestmentsPage() {
     });
   });
 
-  // Bind refresh buttons
+  // Bind refresh buttons (singolo investimento)
   document.querySelectorAll("[data-inv-refresh]").forEach(btn => {
     btn.addEventListener("click", async () => {
-      const id = parseInt(btn.dataset.invRefresh);
+      const id  = parseInt(btn.dataset.invRefresh);
       const inv = investments.find(i => i.id === id);
       if (!inv) return;
 
-      const result = await fetchCurrentPrice(inv.ticker, inv.isin);
+      // Usa priceCurrency salvata sull'investimento (default EUR per retrocompatibilità)
+      const priceCurrency = inv.priceCurrency || "EUR";
+
+      // fetchPriceInEUR gestisce la conversione automatica se priceCurrency !== "EUR"
+      const result = await fetchPriceInEUR(inv.ticker, inv.isin, priceCurrency);
       if (result) {
         inv.currentPrice = result.price;
-        inv.lastUpdated = new Date().toISOString().split("T")[0];
+        inv.lastUpdated  = new Date().toISOString().split("T")[0];
         saveInvestments();
         renderInvestmentsPage();
-        showToast(`${inv.name}: ${result.price.toFixed(2)} ${result.currency} (${result.source})`);
+
+        // Toast con dettagli sulla conversione se applicabile
+        if (result.sourceCurrency !== "EUR" && result.exchangeRate) {
+          showToast(`${inv.name}: ${result.rawPrice.toFixed(4)} ${result.sourceCurrency} → ${result.price.toFixed(4)} EUR (cambio: ${result.exchangeRate.toFixed(4)})`);
+        } else {
+          showToast(`${inv.name}: ${result.price.toFixed(4)} EUR (${result.source})`);
+        }
       } else {
-        showToast(`Could not fetch price for ${inv.name}`, "warning");
+        showToast(`Impossibile recuperare il prezzo per ${inv.name}`, "warning");
       }
     });
   });
@@ -3622,14 +3689,16 @@ function renderInvestmentsPage() {
       if (!inv) return;
 
       // Popola tutti i campi del modal con i valori attuali dell'investimento
-      document.getElementById("inv-edit-id").value       = inv.id;
-      document.getElementById("inv-edit-name").value     = inv.name;
-      document.getElementById("inv-edit-ticker").value   = inv.ticker  || "";
-      document.getElementById("inv-edit-isin").value     = inv.isin    || "";
-      document.getElementById("inv-edit-type").value     = inv.type;
-      document.getElementById("inv-edit-price").value    = inv.purchasePrice;
-      document.getElementById("inv-edit-quantity").value = inv.quantity;
-      document.getElementById("inv-edit-date").value     = inv.purchaseDate || "";
+      document.getElementById("inv-edit-id").value         = inv.id;
+      document.getElementById("inv-edit-name").value       = inv.name;
+      document.getElementById("inv-edit-ticker").value     = inv.ticker  || "";
+      document.getElementById("inv-edit-isin").value       = inv.isin    || "";
+      document.getElementById("inv-edit-type").value       = inv.type;
+      document.getElementById("inv-edit-price").value      = inv.purchasePrice;
+      document.getElementById("inv-edit-quantity").value   = inv.quantity;
+      document.getElementById("inv-edit-date").value       = inv.purchaseDate || "";
+      // Ripristina la valuta del ticker salvata (default EUR per investimenti esistenti senza il campo)
+      document.getElementById("inv-edit-currency").value   = inv.priceCurrency || "EUR";
 
       openModal("modal-edit-inv");
     });
@@ -3642,14 +3711,15 @@ function renderInvestmentsPage() {
       if (e.target.closest("button")) return;
       const inv = investments.find(i => i.id === parseInt(tr.dataset.invId));
       if (!inv) return;
-      document.getElementById("inv-edit-id").value       = inv.id;
-      document.getElementById("inv-edit-name").value     = inv.name;
-      document.getElementById("inv-edit-ticker").value   = inv.ticker  || "";
-      document.getElementById("inv-edit-isin").value     = inv.isin    || "";
-      document.getElementById("inv-edit-type").value     = inv.type;
-      document.getElementById("inv-edit-price").value    = inv.purchasePrice;
-      document.getElementById("inv-edit-quantity").value = inv.quantity;
-      document.getElementById("inv-edit-date").value     = inv.purchaseDate || "";
+      document.getElementById("inv-edit-id").value         = inv.id;
+      document.getElementById("inv-edit-name").value       = inv.name;
+      document.getElementById("inv-edit-ticker").value     = inv.ticker  || "";
+      document.getElementById("inv-edit-isin").value       = inv.isin    || "";
+      document.getElementById("inv-edit-type").value       = inv.type;
+      document.getElementById("inv-edit-price").value      = inv.purchasePrice;
+      document.getElementById("inv-edit-quantity").value   = inv.quantity;
+      document.getElementById("inv-edit-date").value       = inv.purchaseDate || "";
+      document.getElementById("inv-edit-currency").value   = inv.priceCurrency || "EUR";
       openModal("modal-edit-inv");
     });
   });
@@ -3667,13 +3737,15 @@ function renderInvestmentsPage() {
       if (!inv) return;
 
       // Legge i valori dal form e aggiorna l'oggetto investimento
-      const name     = document.getElementById("inv-edit-name").value.trim();
-      const ticker   = document.getElementById("inv-edit-ticker").value.trim();
-      const isin     = document.getElementById("inv-edit-isin").value.trim();
-      const type     = document.getElementById("inv-edit-type").value;
-      const price    = parseFloat(document.getElementById("inv-edit-price").value);
-      const quantity = parseFloat(document.getElementById("inv-edit-quantity").value);
-      const date     = document.getElementById("inv-edit-date").value;
+      const name          = document.getElementById("inv-edit-name").value.trim();
+      const ticker        = document.getElementById("inv-edit-ticker").value.trim();
+      const isin          = document.getElementById("inv-edit-isin").value.trim();
+      const type          = document.getElementById("inv-edit-type").value;
+      const price         = parseFloat(document.getElementById("inv-edit-price").value);
+      const quantity      = parseFloat(document.getElementById("inv-edit-quantity").value);
+      const date          = document.getElementById("inv-edit-date").value;
+      // Legge la valuta del ticker (usata per conversioni future al refresh del prezzo)
+      const priceCurrency = document.getElementById("inv-edit-currency").value || "EUR";
 
       // Validazione minima
       if (!name || isNaN(price) || isNaN(quantity) || price < 0 || quantity <= 0) {
@@ -3689,6 +3761,7 @@ function renderInvestmentsPage() {
       inv.purchasePrice = price;
       inv.quantity      = quantity;
       inv.purchaseDate  = date;
+      inv.priceCurrency = priceCurrency; // aggiorna la valuta del ticker
 
       saveInvestments();
       closeModal("modal-edit-inv");
@@ -4000,13 +4073,15 @@ function bindInvestmentActions() {
 
   // Add Investment
   document.getElementById("btn-add-investment").addEventListener("click", async () => {
-    const name = document.getElementById("inv-name").value.trim();
-    const ticker = document.getElementById("inv-ticker").value.trim().toUpperCase();
-    const isin = document.getElementById("inv-isin").value.trim().toUpperCase();
-    const type = document.getElementById("inv-type").value;
+    const name          = document.getElementById("inv-name").value.trim();
+    const ticker        = document.getElementById("inv-ticker").value.trim().toUpperCase();
+    const isin          = document.getElementById("inv-isin").value.trim().toUpperCase();
+    const type          = document.getElementById("inv-type").value;
     const purchasePrice = parseFloat(document.getElementById("inv-price").value);
-    const quantity = parseFloat(document.getElementById("inv-quantity").value);
-    const purchaseDate = document.getElementById("inv-date").value;
+    const quantity      = parseFloat(document.getElementById("inv-quantity").value);
+    const purchaseDate  = document.getElementById("inv-date").value;
+    // Valuta del ticker su Yahoo Finance (default EUR); se diversa da EUR verrà convertita
+    const priceCurrency = document.getElementById("inv-currency").value || "EUR";
 
     if (!name) return showToast("Please enter a name", "error");
     if (!ticker && !isin) return showToast("Please enter a ticker or ISIN", "error");
@@ -4015,36 +4090,51 @@ function bindInvestmentActions() {
 
     const id = investments.length > 0 ? Math.max(...investments.map(i => i.id)) + 1 : 0;
 
+    // Salvo priceCurrency nell'oggetto investimento per le refresh future
     const inv = {
       id, name, ticker, isin, type,
       purchasePrice, currentPrice: null,
       quantity, purchaseDate,
+      priceCurrency,   // valuta del ticker (es. "USD"), sempre salvata
       lastUpdated: null
     };
 
     closeModal("modal-add-inv");
-    showToast(`Fetching price for ${ticker || isin}...`, "warning");
 
-    const result = await fetchCurrentPrice(ticker, isin);
+    // Messaggio di attesa con info sulla conversione se necessaria
+    const convertMsg = priceCurrency !== "EUR" ? ` (conversione ${priceCurrency}→EUR)` : "";
+    showToast(`Fetching price for ${ticker || isin}${convertMsg}...`, "warning");
+
+    // Usa fetchPriceInEUR: recupera prezzo e converte in EUR automaticamente
+    const result = await fetchPriceInEUR(ticker, isin, priceCurrency);
     if (result) {
       inv.currentPrice = result.price;
-      inv.lastUpdated = new Date().toISOString().split("T")[0];
-      showToast(`${name} added! Price: ${result.price.toFixed(2)} ${result.currency} (${result.source})`);
+      inv.lastUpdated  = new Date().toISOString().split("T")[0];
+
+      // Toast con info sulla conversione effettuata (se applicabile)
+      if (result.sourceCurrency !== "EUR" && result.exchangeRate) {
+        showToast(`${name} aggiunto! ${result.rawPrice.toFixed(4)} ${result.sourceCurrency} → ${result.price.toFixed(4)} EUR (cambio: ${result.exchangeRate.toFixed(4)})`);
+      } else if (result.conversionFailed) {
+        showToast(`${name} aggiunto! Conversione ${result.sourceCurrency}→EUR fallita, prezzo grezzo usato.`, "warning");
+      } else {
+        showToast(`${name} aggiunto! Prezzo: ${result.price.toFixed(4)} EUR (${result.source})`);
+      }
     } else {
       inv.currentPrice = purchasePrice;
-      showToast(`${name} added! Could not fetch price.`, "warning");
+      showToast(`${name} aggiunto! Impossibile recuperare il prezzo.`, "warning");
     }
 
     investments.push(inv);
     saveInvestments();
     renderInvestmentsPage();
 
-    // Reset form
-    document.getElementById("inv-name").value = "";
-    document.getElementById("inv-ticker").value = "";
-    document.getElementById("inv-isin").value = "";
-    document.getElementById("inv-price").value = "0.00";
+    // Reset form (incluso il select valuta → torna a EUR)
+    document.getElementById("inv-name").value     = "";
+    document.getElementById("inv-ticker").value   = "";
+    document.getElementById("inv-isin").value     = "";
+    document.getElementById("inv-price").value    = "0.00";
     document.getElementById("inv-quantity").value = "1";
+    document.getElementById("inv-currency").value = "EUR";
   });
 
   // Manual price update
@@ -4065,20 +4155,28 @@ function bindInvestmentActions() {
     showToast(`${inv.name} updated to ${price.toFixed(2)} EUR`);
   });
 
-  // Refresh all
+  // Refresh all: aggiorna i prezzi di tutti gli investimenti, convertendo in EUR se necessario
   document.getElementById("btn-refresh-all").addEventListener("click", async () => {
     if (investments.length === 0) return showToast("No investments to refresh", "warning");
 
-    showToast("Refreshing all prices...", "warning");
-    let updated = 0;
-    let failed = 0;
+    showToast("Aggiornamento di tutti i prezzi...", "warning");
+    let updated  = 0;
+    let failed   = 0;
+    let converted = 0; // quanti hanno richiesto una conversione valutaria
 
+    // Le richieste vengono parallelizzate ma ognuna usa fetchPriceInEUR
+    // che gestisce automaticamente la conversione valutaria per ogni investimento
     const promises = investments.map(async (inv) => {
-      const result = await fetchCurrentPrice(inv.ticker, inv.isin);
+      const priceCurrency = inv.priceCurrency || "EUR";
+      const result = await fetchPriceInEUR(inv.ticker, inv.isin, priceCurrency);
       if (result) {
         inv.currentPrice = result.price;
-        inv.lastUpdated = new Date().toISOString().split("T")[0];
+        inv.lastUpdated  = new Date().toISOString().split("T")[0];
         updated++;
+        // Conta le conversioni effettuate (solo quelle riuscite, non i fallback)
+        if (result.sourceCurrency !== "EUR" && result.exchangeRate && !result.conversionFailed) {
+          converted++;
+        }
       } else {
         failed++;
       }
@@ -4089,9 +4187,10 @@ function bindInvestmentActions() {
     renderInvestmentsPage();
 
     if (failed === 0) {
-      showToast(`All ${updated} prices refreshed!`);
+      const convertInfo = converted > 0 ? ` (${converted} convertiti in EUR)` : "";
+      showToast(`${updated} prezzi aggiornati!${convertInfo}`);
     } else {
-      showToast(`${updated} updated, ${failed} failed`, "warning");
+      showToast(`${updated} aggiornati, ${failed} falliti`, "warning");
     }
   });
 
