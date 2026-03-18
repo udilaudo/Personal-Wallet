@@ -104,6 +104,7 @@
 
   <!-- ========== DASHBOARD ========== -->
   <section class="page" id="page-main">
+    <h2 class="section-title page-title" style="margin-bottom: 1.5rem;">Dashboard</h2>
 
     <!-- ===== HERO: saldo totale grande + stats mese corrente vs precedente =====
          Usa sempre i dati non filtrati per mostrare il quadro reale.
@@ -124,8 +125,39 @@
       </div>
     </div>
 
-    <!-- ===== ACCOUNT BALANCES CHIPS: saldi reali per conto, sempre aggiornati ===== -->
-    <div class="account-balances-row" id="account-balances"></div>
+    <!-- ===== CARD UNIFICATA: Net Worth Breakdown + Account Balances =====
+         Un'unica card con divisore verticale: patrimonio a sinistra, conti a destra.
+         Evita lo sbilanciamento dei due card separati affiancati. -->
+    <div class="chart-card dashboard-overview-card" id="networth-breakdown-card">
+
+      <!-- Sezione sinistra: Net Worth Breakdown compatto -->
+      <div class="overview-networth-section">
+        <span class="overview-section-label">Net Worth</span>
+        <div class="networth-breakdown-body">
+          <div class="networth-pie-side">
+            <canvas id="chart-networth-pie"></canvas>
+          </div>
+          <div class="networth-values-side" id="networth-values">
+            <!-- Popolato dinamicamente da renderNetworthPieChart() -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Divisore verticale -->
+      <div class="overview-divider"></div>
+
+      <!-- Sezione destra: Account Balances con pie + chip -->
+      <div class="overview-accounts-section">
+        <span class="overview-section-label">Accounts</span>
+        <div class="dash-accounts-layout">
+          <div class="dash-accounts-pie">
+            <canvas id="chart-accounts-pie-dash"></canvas>
+          </div>
+          <div class="account-balances-row" id="account-balances"></div>
+        </div>
+      </div>
+
+    </div>
 
     <!-- ===== BUDGET OVERVIEW: barre mensili per categoria + totale.
          Nascosta automaticamente se nessun budget è impostato. ===== -->
@@ -151,10 +183,6 @@
       </div>
       <div class="budget-bars" id="budget-bars"></div>
     </div>
-
-    <!-- Tooltip flottante per il breakdown categorie sulla barra totale.
-         Posizionato e popolato via JS al mouseover sulla barra. -->
-    <div class="budget-breakdown-tooltip hidden" id="budget-breakdown-tooltip"></div>
 
     <!-- ===== TRANSAZIONI MESE CORRENTE: tabella completa come Analytics,
          filtrata per il mese in corso. Ricerca testuale integrata. ===== -->
@@ -206,24 +234,6 @@
       </div>
     </div>
 
-    <!-- ===== NET WORTH BREAKDOWN: doughnut chart liquidità / investimenti / depositi.
-         Metà sinistra il grafico, metà destra le cifre con percentuali. ===== -->
-    <div class="chart-card" id="networth-breakdown-card">
-      <div class="chart-card-header">
-        <h3>Net Worth Breakdown</h3>
-      </div>
-      <div class="networth-breakdown-body">
-        <!-- Sinistra: doughnut chart -->
-        <div class="networth-pie-side">
-          <canvas id="chart-networth-pie"></canvas>
-        </div>
-        <!-- Destra: righe con etichetta, valore e percentuale -->
-        <div class="networth-values-side" id="networth-values">
-          <!-- Popolato dinamicamente da renderNetworthPieChart() -->
-        </div>
-      </div>
-    </div>
-
     <!-- ===== DAILY BALANCE CHART: saldo cumulativo nel tempo, dati non filtrati.
          Mostra l'andamento storico del saldo totale del wallet. ===== -->
     <div class="chart-card" id="daily-balance-chart-container-dash">
@@ -241,6 +251,7 @@
   <!-- Pagina dedicata: filtri, tabella completa, grafici, pivot table.
        Navigabile direttamente dal menu o da "View all" nella dashboard. -->
   <section class="page hidden" id="page-analytics">
+    <h2 class="section-title page-title" style="margin-bottom: 1.5rem;">Analytics</h2>
 
     <!-- Account Overview: chip saldi (come dashboard) + pie chart affiancati.
          Posizionato in cima, sopra i filtri, dato che i saldi non cambiano con i filtri. -->
@@ -416,10 +427,9 @@
 
   <!-- ========== INVESTMENTS ========== -->
   <section class="page hidden" id="page-investments">
-    <!-- Summary Cards -->
-    <div class="summary-cards" id="summary-investments"></div>
+    <h2 class="section-title page-title" style="margin-bottom: 1.5rem;">Investments & Deposit Accounts</h2>
 
-    <!-- Action Bar -->
+    <!-- Action Bar: titolo sinistra, pulsanti destra -->
     <div class="action-bar">
       <h2 class="section-title">Portfolio</h2>
       <div class="action-bar-right">
@@ -443,6 +453,9 @@
         </button>
       </div>
     </div>
+
+    <!-- Summary Cards: sotto il titolo Portfolio -->
+    <div class="summary-cards" id="summary-investments"></div>
 
     <!-- Vista Tabella (default) -->
     <div class="table-card" id="investments-table-container">
@@ -561,7 +574,7 @@
 
     <!-- Action Bar con titolo e pulsante aggiunta -->
     <div class="action-bar">
-      <h2 class="section-title">Subscriptions</h2>
+      <h2 class="section-title page-title">Subscriptions</h2>
       <div class="action-bar-right">
         <button class="btn btn-primary btn-with-icon" id="btn-open-add-sub">
           <i data-lucide="plus"></i> Add
@@ -570,23 +583,16 @@
     </div>
 
     <!-- Card con la griglia degli abbonamenti attivi/scaduti -->
+    <!-- Le azioni (edit, deactivate/reactivate, remove) sono ora inline su ogni card -->
     <div class="settings-card">
       <div id="subscriptions-list" class="subscriptions-grid"></div>
-      <!-- Footer con selezione per rimuovere/disattivare -->
-      <div class="settings-card-footer" id="sub-actions-footer">
-        <div class="inline-form">
-          <select id="remove-subscription" class="input input-sm"></select>
-          <button class="btn btn-danger btn-sm" id="btn-remove-subscription">Remove</button>
-          <button class="btn btn-warning btn-sm" id="btn-deactivate-subscription">Deactivate</button>
-        </div>
-      </div>
     </div>
 
   </section>
 
   <!-- ========== SETTINGS ========== -->
   <section class="page hidden" id="page-settings">
-    <h2 class="section-title" style="margin-bottom: 1.5rem;">Settings</h2>
+    <h2 class="section-title page-title" style="margin-bottom: 1.5rem;">Settings</h2>
 
     <!-- Subscriptions è ora una pagina dedicata nella navigazione -->
 
@@ -598,15 +604,12 @@
           <h3>Categories</h3>
         </div>
       </div>
+      <!-- I tag hanno un × inline — la rimozione avviene direttamente sulla tag con conferma -->
       <div class="tags-list" id="categories-tags"></div>
       <div class="settings-card-footer">
         <div class="inline-form">
           <input type="text" id="new-category" placeholder="New category name" class="input input-sm" />
           <button class="btn btn-primary btn-sm" id="btn-add-category">Add</button>
-        </div>
-        <div class="inline-form">
-          <select id="remove-category" class="input input-sm"></select>
-          <button class="btn btn-danger btn-sm" id="btn-remove-category">Remove</button>
         </div>
       </div>
     </div>
@@ -619,15 +622,12 @@
           <h3>Accounts</h3>
         </div>
       </div>
+      <!-- I tag hanno un × inline — la rimozione avviene direttamente sulla tag con conferma -->
       <div class="tags-list" id="accounts-tags"></div>
       <div class="settings-card-footer">
         <div class="inline-form">
           <input type="text" id="new-account" placeholder="New account name" class="input input-sm" />
           <button class="btn btn-primary btn-sm" id="btn-add-account">Add</button>
-        </div>
-        <div class="inline-form">
-          <select id="remove-account" class="input input-sm"></select>
-          <button class="btn btn-danger btn-sm" id="btn-remove-account">Remove</button>
         </div>
       </div>
     </div>
@@ -645,6 +645,27 @@
         <div class="inline-form">
           <input type="number" id="commission-value" min="0" max="1000" step="0.50" value="0.00" class="input input-sm" />
           <button class="btn btn-primary btn-sm" id="btn-save-commission">Save</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- PayPal Split Fallback Account -->
+    <div class="settings-card">
+      <div class="settings-card-header">
+        <div class="settings-card-title">
+          <i data-lucide="split"></i>
+          <h3>PayPal Split — Fallback Account</h3>
+        </div>
+      </div>
+      <p class="settings-desc">
+        When a PayPal payment exceeds the available balance, the remaining amount
+        is charged to this account.
+      </p>
+      <div class="settings-card-footer">
+        <div class="inline-form">
+          <!-- Popolato da renderSettingsPage() con i conti disponibili (escluso paypal) -->
+          <select id="paypal-fallback-select" class="input input-sm"></select>
+          <button class="btn btn-primary btn-sm" id="btn-save-paypal-fallback">Save</button>
         </div>
       </div>
     </div>
@@ -730,17 +751,26 @@
       <button class="modal-close" data-close="modal-add"><i data-lucide="x"></i></button>
     </div>
     <div class="modal-body">
-      <div class="form-row">
-        <div class="form-group">
-          <label>Type</label>
-          <select id="add-type" class="input">
-            <option value="0">Expense</option>
-            <option value="1">Income</option>
-          </select>
+      <!-- Toggle Expense / Income: valore salvato nell'hidden input -->
+      <div class="form-group">
+        <div class="type-toggle">
+          <button type="button" class="type-btn type-btn-expense active" data-value="0">
+            <i data-lucide="trending-down"></i> Expense
+          </button>
+          <button type="button" class="type-btn type-btn-income" data-value="1">
+            <i data-lucide="trending-up"></i> Income
+          </button>
         </div>
+        <input type="hidden" id="add-type" value="0" />
+      </div>
+      <div class="form-row">
         <div class="form-group">
           <label>Amount (&euro;)</label>
           <input type="number" id="add-amount" min="0" step="0.01" value="0.00" class="input" />
+        </div>
+        <div class="form-group">
+          <label>Date</label>
+          <input type="date" id="add-date" class="input" />
         </div>
       </div>
       <div class="form-row">
@@ -756,10 +786,6 @@
       <div class="form-group">
         <label>Description</label>
         <input type="text" id="add-description" placeholder="e.g. Weekly groceries" class="input" />
-      </div>
-      <div class="form-group">
-        <label>Date</label>
-        <input type="date" id="add-date" class="input" />
       </div>
     </div>
     <div class="modal-footer">
@@ -778,17 +804,26 @@
     </div>
     <div class="modal-body">
       <input type="hidden" id="edit-id" />
-      <div class="form-row">
-        <div class="form-group">
-          <label>Type</label>
-          <select id="edit-type" class="input">
-            <option value="0">Expense</option>
-            <option value="1">Income</option>
-          </select>
+      <!-- Toggle Expense / Income -->
+      <div class="form-group">
+        <div class="type-toggle">
+          <button type="button" class="type-btn type-btn-expense active" data-value="0">
+            <i data-lucide="trending-down"></i> Expense
+          </button>
+          <button type="button" class="type-btn type-btn-income" data-value="1">
+            <i data-lucide="trending-up"></i> Income
+          </button>
         </div>
+        <input type="hidden" id="edit-type" value="0" />
+      </div>
+      <div class="form-row">
         <div class="form-group">
           <label>Amount (&euro;)</label>
           <input type="number" id="edit-amount" min="0" step="0.01" value="0.00" class="input" />
+        </div>
+        <div class="form-group">
+          <label>Date</label>
+          <input type="date" id="edit-date" class="input" />
         </div>
       </div>
       <div class="form-row">
@@ -804,10 +839,6 @@
       <div class="form-group">
         <label>Description</label>
         <input type="text" id="edit-description" class="input" />
-      </div>
-      <div class="form-group">
-        <label>Date</label>
-        <input type="date" id="edit-date" class="input" />
       </div>
     </div>
     <div class="modal-footer">
@@ -1168,7 +1199,8 @@
           <input type="text" id="sub-name" placeholder="e.g. Netflix" class="input" />
         </div>
         <div class="form-group">
-          <label>Amount (&euro;/month)</label>
+          <!-- La label viene aggiornata dinamicamente in base alla frequenza -->
+          <label id="sub-amount-label">Amount (&euro;/month)</label>
           <input type="number" id="sub-amount" min="0" step="0.50" value="0.00" class="input" />
         </div>
       </div>
@@ -1181,6 +1213,16 @@
           <label>Duration (months)</label>
           <input type="number" id="sub-duration" min="1" max="36" value="1" class="input" />
         </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <!-- Frequenza di pagamento: mensile (default) o annuale -->
+          <label>Billing Frequency</label>
+          <select id="sub-frequency" class="input">
+            <option value="monthly">Monthly</option>
+            <option value="annual">Annual</option>
+          </select>
+        </div>
         <div class="form-group">
           <label>Account</label>
           <select id="sub-account" class="input"></select>
@@ -1190,6 +1232,58 @@
     <div class="modal-footer">
       <button class="btn btn-outline" data-close="modal-add-sub">Cancel</button>
       <button class="btn btn-primary" id="btn-add-subscription">Add Subscription</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Edit Subscription -->
+<div class="modal-overlay hidden" id="modal-edit-sub">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Edit Subscription</h3>
+      <button class="modal-close" data-close="modal-edit-sub"><i data-lucide="x"></i></button>
+    </div>
+    <div class="modal-body">
+      <!-- Campo nascosto per ricordare il nome originale dell'abbonamento -->
+      <input type="hidden" id="edit-sub-original-name" />
+      <div class="form-row">
+        <div class="form-group">
+          <label>Name</label>
+          <input type="text" id="edit-sub-name" placeholder="e.g. Netflix" class="input" />
+        </div>
+        <div class="form-group">
+          <!-- La label viene aggiornata dinamicamente in base alla frequenza -->
+          <label id="edit-sub-amount-label">Amount (&euro;/month)</label>
+          <input type="number" id="edit-sub-amount" min="0" step="0.50" value="0.00" class="input" />
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Start Date</label>
+          <input type="date" id="edit-sub-start" class="input" />
+        </div>
+        <div class="form-group">
+          <label>Duration (months)</label>
+          <input type="number" id="edit-sub-duration" min="1" max="36" value="1" class="input" />
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Billing Frequency</label>
+          <select id="edit-sub-frequency" class="input">
+            <option value="monthly">Monthly</option>
+            <option value="annual">Annual</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Account</label>
+          <select id="edit-sub-account" class="input"></select>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" data-close="modal-edit-sub">Cancel</button>
+      <button class="btn btn-primary" id="btn-save-edit-sub">Save Changes</button>
     </div>
   </div>
 </div>
@@ -1313,6 +1407,10 @@
 <!-- ======================== JAVASCRIPT ======================== -->
 <!-- Cache-busting automatico: stesso timestamp del CSS, mantiene l'ordine
      di caricamento (wallet.js deve essere caricato prima di app.js) -->
+<!-- Tooltip budget breakdown: fuori da .page per evitare che transform CSS
+     sull'animazione della pagina rompa position:fixed (crea nuovo stacking context) -->
+<div class="budget-breakdown-tooltip hidden" id="budget-breakdown-tooltip"></div>
+
 <script>
   var _v = Date.now();
   document.write('<script src="wallet.js?v=' + _v + '"><\/script>');

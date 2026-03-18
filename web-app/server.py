@@ -100,6 +100,8 @@ def api_load():
             result["contiList"] = config.get("contiList")
             result["subscriptions"] = config.get("subscriptions")
             result["commission"] = config.get("commission", 0)
+            # Conto di fallback per lo split PayPal (stringa nome conto)
+            result["splitFallbackConto"] = config.get("splitFallbackConto", "")
             # Carica i budget mensili per categoria (dizionario { "cat": importo })
             result["budgets"] = config.get("budgets", {})
             # Carica il budget mensile totale (numero, 0 = non impostato)
@@ -150,6 +152,7 @@ def api_save():
         "contiList": data.get("contiList", []),
         "subscriptions": data.get("subscriptions", {}),
         "commission": data.get("commission", 0),
+        "splitFallbackConto": data.get("splitFallbackConto", ""),
         "budgets": data.get("budgets", {}),
         "totalBudget": data.get("totalBudget", 0),
     }

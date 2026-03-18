@@ -50,6 +50,7 @@ let currentChartFiltered = null;
 let currentChartInvestment = null;
 let currentChartInvPie = null;
 let currentChartAccountsPie = null;
+let currentChartAccountsPieDash = null; // doughnut distribuzione conti nella Dashboard
 let currentChartNetworthPie = null; // doughnut Net Worth Breakdown (dashboard)
 let currentChartHeroTrend  = null; // mini bar chart trend 6 mesi (hero section)
 // Mappa canvasId → istanza Chart per i Daily Balance (dashboard + analytics)
@@ -99,6 +100,8 @@ async function syncToBackend() {
         contiList: wallet.contiList,
         subscriptions: wallet.subscriptions,
         commission: wallet.commission,
+        // Conto fallback per lo split PayPal
+        splitFallbackConto: wallet.splitFallbackConto,
         investments: investments,
         // Includiamo anche i conti deposito nel backup su backend
         depositAccounts: depositAccounts,
@@ -125,6 +128,8 @@ async function loadFromBackend() {
     if (data.contiList) wallet.contiList = data.contiList;
     if (data.subscriptions) wallet.subscriptions = data.subscriptions;
     if (data.commission !== undefined) wallet.commission = data.commission;
+    // Conto fallback per lo split PayPal (se non presente usa il default del costruttore)
+    if (data.splitFallbackConto) wallet.splitFallbackConto = data.splitFallbackConto;
     // Ripristina i budget mensili e il budget totale dal backend se presenti
     if (data.budgets) wallet.budgets = data.budgets;
     if (data.totalBudget !== undefined) wallet.totalBudget = data.totalBudget;
@@ -347,6 +352,14 @@ function navigateTo(page) {
   if (page === "investments") {
     renderInvestmentsPieChart();
   }
+
+  // Se si naviga sulla Dashboard, ri-renderizza il Net Worth Breakdown pie chart.
+  // Stesso problema: se il canvas era hidden quando il chart è stato creato/aggiornato
+  // (es. durante renderMainPage() chiamato da analytics), le dimensioni risultano 0x0.
+  // Qui il canvas è già visibile, quindi il re-render produce dimensioni corrette.
+  if (page === "main") {
+    renderNetworthPieChart();
+  }
 }
 
 function bindMobileNav() {
@@ -560,7 +573,7 @@ function bindModals() {
 // ======================== POPULATE SELECTS ========================
 
 function populateSelects() {
-  const categorySelects = ["add-category", "edit-category", "remove-category"];
+  const categorySelects = ["add-category", "edit-category"];
   categorySelects.forEach(id => {
     const sel = document.getElementById(id);
     if (!sel) return;
@@ -573,7 +586,7 @@ function populateSelects() {
     });
   });
 
-  const accountSelects = ["add-account", "edit-account", "transfer-from", "transfer-to", "sub-account", "remove-account"];
+  const accountSelects = ["add-account", "edit-account", "transfer-from", "transfer-to", "sub-account"];
   accountSelects.forEach(id => {
     const sel = document.getElementById(id);
     if (!sel) return;
@@ -649,17 +662,8 @@ function populateSelects() {
     });
   }
 
-  // Subscription select
-  const subSelect = document.getElementById("remove-subscription");
-  if (subSelect) {
-    subSelect.innerHTML = "";
-    Object.keys(wallet.subscriptions).forEach(name => {
-      const opt = document.createElement("option");
-      opt.value = name;
-      opt.textContent = name;
-      subSelect.appendChild(opt);
-    });
-  }
+  // Nota: il vecchio select #remove-subscription è stato rimosso dall'HTML.
+  // Le azioni sugli abbonamenti sono ora gestite tramite bottoni inline sulle card.
 }
 
 // ======================== HERO SECTION ========================
@@ -933,7 +937,7 @@ function renderRecentTransactions() {
         const t = wallet.transactions.find(t => t.ID === parseInt(btn.dataset.dashEditId));
         if (!t) return;
         document.getElementById("edit-id").value = t.ID;
-        document.getElementById("edit-type").value = t.Type === 1 ? "1" : "0";
+        setTypeToggle("edit", t.Type === 1 ? "1" : "0");
         document.getElementById("edit-amount").value = Math.abs(t.Amount).toFixed(2);
         document.getElementById("edit-category").value = t.Category;
         document.getElementById("edit-description").value = t.Description;
@@ -954,7 +958,7 @@ function renderRecentTransactions() {
         const t = wallet.transactions.find(t => t.ID === parseInt(tr.dataset.txId));
         if (!t) return;
         document.getElementById("edit-id").value = t.ID;
-        document.getElementById("edit-type").value = t.Type === 1 ? "1" : "0";
+        setTypeToggle("edit", t.Type === 1 ? "1" : "0");
         document.getElementById("edit-amount").value = Math.abs(t.Amount).toFixed(2);
         document.getElementById("edit-category").value = t.Category;
         document.getElementById("edit-description").value = t.Description;
@@ -1173,24 +1177,31 @@ function renderMainPage() {
     </div>
   `;
 
-  // --- Account Balances ---
+  // --- Account Balances con percentuali ---
+  // Calcola il totale assoluto per le % (usa Math.abs per saldi negativi)
   const balancesDiv = document.getElementById("account-balances");
   balancesDiv.innerHTML = "";
-  for (const [conto, saldo] of Object.entries(wallet.saldoConti)) {
+  const totalAbsBalance = Object.values(wallet.saldoConti).reduce((sum, s) => sum + Math.abs(s), 0);
+  // Ordina per saldo discendente
+  const sortedConti = Object.entries(wallet.saldoConti).sort(([, a], [, b]) => b - a);
+  for (const [conto, saldo] of sortedConti) {
+    const pct = totalAbsBalance > 0 ? ((Math.abs(saldo) / totalAbsBalance) * 100).toFixed(1) : "0.0";
     const chip = document.createElement("div");
     chip.className = "balance-chip";
     chip.title = "Double-click to see account detail";
     chip.innerHTML = `
       <span class="balance-chip-name">${conto.charAt(0).toUpperCase() + conto.slice(1)}</span>
       <span class="balance-chip-value ${saldo >= 0 ? 'positive' : 'negative'}">${saldo.toFixed(2)} &euro;</span>
+      <span class="balance-chip-pct">${pct}%</span>
     `;
     // Doppio click: apre il modal dettaglio per questo conto
     chip.addEventListener("dblclick", () => openAccountDetailModal(conto));
     balancesDiv.appendChild(chip);
   }
 
-  // --- Account Pie Chart ---
+  // --- Account Pie Chart (Analytics) + Pie Chart Dashboard ---
   renderAccountsPieChart();
+  renderAccountsPieChartDash();
 
   // --- Pivot Table (dati filtrati) ---
   renderPivotTable(data, "pivot-head-main", "pivot-body-main");
@@ -1225,7 +1236,37 @@ function renderMainPage() {
 
 // ======================== MAIN ACTIONS ========================
 
+/**
+ * setTypeToggle — sincronizza i bottoni Expense/Income con il valore dell'hidden input.
+ * @param {string} prefix - "add" o "edit"
+ * @param {string|number} value - "0" (expense) o "1" (income)
+ */
+function setTypeToggle(prefix, value) {
+  const strVal = String(value);
+  document.getElementById(`${prefix}-type`).value = strVal;
+  const modalId = prefix === "add" ? "modal-add" : "modal-edit";
+  document.querySelectorAll(`#${modalId} .type-btn`).forEach(btn => {
+    btn.classList.toggle("active", btn.dataset.value === strVal);
+  });
+  // Ri-inizializza le icone Lucide nei bottoni appena aggiornati
+  lucide.createIcons();
+}
+
 function bindMainActions() {
+  // Binding toggle Expense/Income nel modal Add
+  document.querySelectorAll("#modal-add .type-btn").forEach(btn => {
+    btn.addEventListener("click", () => setTypeToggle("add", btn.dataset.value));
+  });
+
+  // Binding toggle Expense/Income nel modal Edit
+  document.querySelectorAll("#modal-edit .type-btn").forEach(btn => {
+    btn.addEventListener("click", () => setTypeToggle("edit", btn.dataset.value));
+  });
+
+  // Quando si apre il modal Add, resetta sempre a Expense (0)
+  document.getElementById("btn-open-add").addEventListener("click",  () => setTypeToggle("add", "0"));
+  document.getElementById("btn-open-add-hero").addEventListener("click", () => setTypeToggle("add", "0"));
+
   // Add Transaction
   document.getElementById("btn-add-transaction").addEventListener("click", () => {
     const type = parseInt(document.getElementById("add-type").value);
@@ -1829,7 +1870,7 @@ function bindBudgetActions() {
 // ======================== SETTINGS PAGE ========================
 
 function renderSettingsPage() {
-  // Subscriptions list
+  // Subscriptions list — le card ora hanno bottoni inline per edit/deactivate/reactivate/remove
   const subList = document.getElementById("subscriptions-list");
   subList.innerHTML = "";
 
@@ -1842,43 +1883,78 @@ function renderSettingsPage() {
   } else {
     all.forEach(([name, details]) => {
       const isActive = details.status === "active";
+      // Frequenza: "monthly" è il default per compatibilità con abbonamenti già esistenti
+      const freq = details.billing_frequency || "monthly";
+      const freqLabel = freq === "annual" ? "year" : "month";
+
       const div = document.createElement("div");
       div.className = "sub-card";
       div.innerHTML = `
         <div class="sub-card-header">
           <span class="sub-card-name">${name}</span>
-          <span class="sub-status ${isActive ? 'status-active' : 'status-expired'}">${details.status}</span>
+          <div class="sub-card-badges">
+            <span class="sub-status ${isActive ? 'status-active' : 'status-expired'}">${details.status}</span>
+            <span class="sub-freq-badge">${freq === "annual" ? "Annual" : "Monthly"}</span>
+          </div>
         </div>
         <div class="sub-card-details">
-          <span class="sub-card-amount">${details.amount.toFixed(2)} &euro;/month</span>
+          <span class="sub-card-amount">${details.amount.toFixed(2)} &euro;/${freqLabel}</span>
           <span>${details.conto}</span>
           <span>${details.start_date} — ${details.end_date}</span>
+        </div>
+        <div class="sub-card-actions">
+          <!-- Bottone edit sempre visibile -->
+          <button class="btn btn-xs btn-outline sub-btn-edit" data-name="${name}">
+            <i data-lucide="pencil"></i> Edit
+          </button>
+          <!-- Deactivate per attivi, Reactivate per scaduti/disattivati -->
+          ${isActive
+            ? `<button class="btn btn-xs btn-warning sub-btn-deactivate" data-name="${name}">
+                <i data-lucide="pause-circle"></i> Deactivate
+               </button>`
+            : `<button class="btn btn-xs btn-success sub-btn-reactivate" data-name="${name}">
+                <i data-lucide="play-circle"></i> Reactivate
+               </button>`
+          }
+          <!-- Rimozione definitiva -->
+          <button class="btn btn-xs btn-danger sub-btn-remove" data-name="${name}">
+            <i data-lucide="trash-2"></i> Remove
+          </button>
         </div>
       `;
       subList.appendChild(div);
     });
   }
 
-  // Category tags
+  // Ricrea le icone Lucide per i bottoni appena inseriti
+  lucide.createIcons();
+
+  // Category tags — ogni tag ha un bottone × per la rimozione inline con conferma
   const catsTags = document.getElementById("categories-tags");
   if (catsTags) {
     catsTags.innerHTML = "";
     wallet.categories.forEach(cat => {
       const span = document.createElement("span");
-      span.className = "tag";
-      span.textContent = cat;
+      span.className = "tag tag-deletable";
+      span.innerHTML = `
+        <span class="tag-label">${cat}</span>
+        <button class="tag-delete-btn" data-name="${cat}" aria-label="Remove ${cat}">×</button>
+      `;
       catsTags.appendChild(span);
     });
   }
 
-  // Account tags
+  // Account tags — ogni tag ha un bottone × per la rimozione inline con conferma
   const accsTags = document.getElementById("accounts-tags");
   if (accsTags) {
     accsTags.innerHTML = "";
     wallet.contiList.forEach(acc => {
       const span = document.createElement("span");
-      span.className = "tag tag-account";
-      span.textContent = acc;
+      span.className = "tag tag-account tag-deletable";
+      span.innerHTML = `
+        <span class="tag-label">${acc}</span>
+        <button class="tag-delete-btn" data-name="${acc}" aria-label="Remove ${acc}">×</button>
+      `;
       accsTags.appendChild(span);
     });
   }
@@ -1886,6 +1962,22 @@ function renderSettingsPage() {
   // Commission
   const commEl = document.getElementById("current-commission");
   if (commEl) commEl.textContent = wallet.commission.toFixed(2);
+
+  // PayPal split fallback: popola il select con i conti disponibili (escluso paypal stesso)
+  const fallbackSel = document.getElementById("paypal-fallback-select");
+  if (fallbackSel) {
+    fallbackSel.innerHTML = "";
+    wallet.contiList
+      .filter(c => c !== "paypal")
+      .forEach(c => {
+        const opt = document.createElement("option");
+        opt.value = c;
+        opt.textContent = c.charAt(0).toUpperCase() + c.slice(1);
+        // Pre-seleziona il conto attualmente configurato
+        if (c === wallet.splitFallbackConto) opt.selected = true;
+        fallbackSel.appendChild(opt);
+      });
+  }
 
   // Budget mensili: aggiorna la lista nella card Budget
   renderSettingsBudgets();
@@ -1907,10 +1999,12 @@ function bindSettingsActions() {
     showToast(`Category "${name}" added!`);
   });
 
-  // Remove category
-  document.getElementById("btn-remove-category").addEventListener("click", () => {
-    const name = document.getElementById("remove-category").value;
-    if (!name) return showToast("Please select a category", "error");
+  // Rimozione categoria — event delegation sul contenitore dei tag, con conferma
+  document.getElementById("categories-tags").addEventListener("click", (e) => {
+    const btn = e.target.closest(".tag-delete-btn");
+    if (!btn) return;
+    const name = btn.dataset.name;
+    if (!confirm(`Remove category "${name}"?`)) return;
 
     wallet.categories = wallet.categories.filter(c => c !== name);
     populateSelects();
@@ -1934,10 +2028,12 @@ function bindSettingsActions() {
     showToast(`Account "${name}" added!`);
   });
 
-  // Remove account
-  document.getElementById("btn-remove-account").addEventListener("click", () => {
-    const name = document.getElementById("remove-account").value;
-    if (!name) return showToast("Please select an account", "error");
+  // Rimozione account — event delegation sul contenitore dei tag, con conferma
+  document.getElementById("accounts-tags").addEventListener("click", (e) => {
+    const btn = e.target.closest(".tag-delete-btn");
+    if (!btn) return;
+    const name = btn.dataset.name;
+    if (!confirm(`Remove account "${name}"?`)) return;
 
     wallet.contiList = wallet.contiList.filter(c => c !== name);
     populateSelects();
@@ -1946,19 +2042,30 @@ function bindSettingsActions() {
     showToast(`Account "${name}" removed!`);
   });
 
-  // Add subscription
+  // ── Add Subscription ──────────────────────────────────────────────────────────
+
+  // Aggiorna la label dell'importo quando cambia la frequenza (Add modal)
+  document.getElementById("sub-frequency").addEventListener("change", (e) => {
+    const label = document.getElementById("sub-amount-label");
+    label.innerHTML = e.target.value === "annual"
+      ? "Amount (&euro;/year)"
+      : "Amount (&euro;/month)";
+  });
+
   document.getElementById("btn-add-subscription").addEventListener("click", () => {
-    const name = document.getElementById("sub-name").value.trim();
+    const name      = document.getElementById("sub-name").value.trim();
     const startDate = document.getElementById("sub-start").value;
-    const duration = parseInt(document.getElementById("sub-duration").value);
-    const amount = parseFloat(document.getElementById("sub-amount").value);
-    const account = document.getElementById("sub-account").value;
+    const duration  = parseInt(document.getElementById("sub-duration").value);
+    const amount    = parseFloat(document.getElementById("sub-amount").value);
+    const account   = document.getElementById("sub-account").value;
+    const frequency = document.getElementById("sub-frequency").value; // "monthly" | "annual"
 
     if (!name) return showToast("Please enter a subscription name", "error");
     if (wallet.subscriptions[name]) return showToast("Subscription already exists", "warning");
 
+    // Calcola la data di fine sommando i mesi di durata
     const start = new Date(startDate);
-    const end = new Date(start);
+    const end   = new Date(start);
     end.setMonth(end.getMonth() + duration);
     const endStr = end.toISOString().split("T")[0];
 
@@ -1967,10 +2074,15 @@ function bindSettingsActions() {
       conto: account,
       start_date: startDate,
       end_date: endStr,
+      billing_frequency: frequency, // nuovo campo
       status: "active"
     };
 
+    // Reset form
     document.getElementById("sub-name").value = "";
+    document.getElementById("sub-frequency").value = "monthly";
+    document.getElementById("sub-amount-label").innerHTML = "Amount (&euro;/month)";
+
     populateSelects();
     renderSettingsPage();
     closeModal("modal-add-sub");
@@ -1978,31 +2090,162 @@ function bindSettingsActions() {
     showToast(`Subscription "${name}" added!`);
   });
 
-  // Remove subscription
-  document.getElementById("btn-remove-subscription").addEventListener("click", () => {
-    const name = document.getElementById("remove-subscription").value;
-    if (!name) return showToast("Please select a subscription", "error");
+  // ── Azioni inline sulle card (event delegation su #subscriptions-list) ─────────
+  // Gestisce edit / deactivate / reactivate / remove cliccando i bottoni sulle card
 
-    delete wallet.subscriptions[name];
+  const subList = document.getElementById("subscriptions-list");
+
+  subList.addEventListener("click", (e) => {
+    // Cerca il bottone più vicino con una classe di azione
+    const btn = e.target.closest(
+      ".sub-btn-edit, .sub-btn-deactivate, .sub-btn-reactivate, .sub-btn-remove"
+    );
+    if (!btn) return;
+
+    const name = btn.dataset.name;
+    if (!name || !wallet.subscriptions[name]) return;
+
+    // ── EDIT ─────────────────────────────────────────────────────────────────
+    if (btn.classList.contains("sub-btn-edit")) {
+      const sub = wallet.subscriptions[name];
+      const freq = sub.billing_frequency || "monthly";
+
+      // Popoliamo il modal di edit con i dati attuali
+      document.getElementById("edit-sub-original-name").value = name;
+      document.getElementById("edit-sub-name").value          = name;
+      document.getElementById("edit-sub-amount").value        = sub.amount;
+      document.getElementById("edit-sub-start").value         = sub.start_date;
+      document.getElementById("edit-sub-frequency").value     = freq;
+
+      // Aggiorna label importo
+      document.getElementById("edit-sub-amount-label").innerHTML =
+        freq === "annual" ? "Amount (&euro;/year)" : "Amount (&euro;/month)";
+
+      // Calcola durata in mesi dalla differenza tra end e start
+      const start = new Date(sub.start_date);
+      const end   = new Date(sub.end_date);
+      const diffMonths =
+        (end.getFullYear() - start.getFullYear()) * 12 +
+        (end.getMonth() - start.getMonth());
+      document.getElementById("edit-sub-duration").value = Math.max(1, diffMonths);
+
+      // Popola il select account (copiato da populateSelects, ma solo per edit)
+      const editAccSel = document.getElementById("edit-sub-account");
+      editAccSel.innerHTML = "";
+      wallet.contiList.forEach(acc => {
+        const opt = document.createElement("option");
+        opt.value = acc;
+        opt.textContent = acc;
+        if (acc === sub.conto) opt.selected = true;
+        editAccSel.appendChild(opt);
+      });
+
+      openModal("modal-edit-sub");
+      return;
+    }
+
+    // ── DEACTIVATE ────────────────────────────────────────────────────────────
+    if (btn.classList.contains("sub-btn-deactivate")) {
+      // Setta end_date a ieri e status a expired (forza la disattivazione manuale)
+      wallet.subscriptions[name].status = "expired";
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      wallet.subscriptions[name].end_date = yesterday.toISOString().split("T")[0];
+
+      renderSettingsPage();
+      wallet.save();
+      showToast(`Subscription "${name}" deactivated!`, "warning");
+      return;
+    }
+
+    // ── REACTIVATE ────────────────────────────────────────────────────────────
+    if (btn.classList.contains("sub-btn-reactivate")) {
+      // Riattiva: sposta la start_date ad oggi e ricalcola la end_date mantenendo la durata
+      const sub = wallet.subscriptions[name];
+      const oldStart = new Date(sub.start_date);
+      const oldEnd   = new Date(sub.end_date);
+      const diffMonths =
+        (oldEnd.getFullYear() - oldStart.getFullYear()) * 12 +
+        (oldEnd.getMonth() - oldStart.getMonth());
+
+      const today = new Date();
+      const newEnd = new Date(today);
+      newEnd.setMonth(newEnd.getMonth() + Math.max(1, diffMonths));
+
+      sub.start_date = today.toISOString().split("T")[0];
+      sub.end_date   = newEnd.toISOString().split("T")[0];
+      sub.status     = "active";
+
+      renderSettingsPage();
+      wallet.paySubscriptions(); // ricalcola stati e paga se necessario
+      wallet.save();
+      showToast(`Subscription "${name}" reactivated!`, "success");
+      return;
+    }
+
+    // ── REMOVE ────────────────────────────────────────────────────────────────
+    if (btn.classList.contains("sub-btn-remove")) {
+      if (!confirm(`Remove subscription "${name}"? This action cannot be undone.`)) return;
+
+      delete wallet.subscriptions[name];
+      populateSelects();
+      renderSettingsPage();
+      wallet.save();
+      showToast(`Subscription "${name}" removed!`, "error");
+      return;
+    }
+  });
+
+  // ── Edit Sub Frequency label dinamica ─────────────────────────────────────
+  document.getElementById("edit-sub-frequency").addEventListener("change", (e) => {
+    document.getElementById("edit-sub-amount-label").innerHTML =
+      e.target.value === "annual" ? "Amount (&euro;/year)" : "Amount (&euro;/month)";
+  });
+
+  // ── Save Edit Subscription ────────────────────────────────────────────────
+  document.getElementById("btn-save-edit-sub").addEventListener("click", () => {
+    const originalName = document.getElementById("edit-sub-original-name").value;
+    const newName      = document.getElementById("edit-sub-name").value.trim();
+    const amount       = parseFloat(document.getElementById("edit-sub-amount").value);
+    const startDate    = document.getElementById("edit-sub-start").value;
+    const duration     = parseInt(document.getElementById("edit-sub-duration").value);
+    const account      = document.getElementById("edit-sub-account").value;
+    const frequency    = document.getElementById("edit-sub-frequency").value;
+
+    if (!newName) return showToast("Please enter a subscription name", "error");
+    // Se il nome è cambiato, verifica che il nuovo nome non esista già
+    if (newName !== originalName && wallet.subscriptions[newName]) {
+      return showToast("A subscription with this name already exists", "warning");
+    }
+
+    // Calcola la nuova end_date dalla start + duration
+    const start = new Date(startDate);
+    const end   = new Date(start);
+    end.setMonth(end.getMonth() + duration);
+    const endStr = end.toISOString().split("T")[0];
+
+    // Se il nome è cambiato, rimuovi il vecchio e crea il nuovo
+    const oldData = wallet.subscriptions[originalName];
+    if (newName !== originalName) {
+      delete wallet.subscriptions[originalName];
+    }
+
+    wallet.subscriptions[newName] = {
+      ...oldData, // mantieni eventuali campi extra
+      amount,
+      conto: account,
+      start_date: startDate,
+      end_date: endStr,
+      billing_frequency: frequency,
+      // lo status verrà ricalcolato da paySubscriptions
+      status: oldData.status
+    };
+
+    closeModal("modal-edit-sub");
     populateSelects();
     renderSettingsPage();
     wallet.save();
-    showToast(`Subscription "${name}" removed!`);
-  });
-
-  // Deactivate subscription
-  document.getElementById("btn-deactivate-subscription").addEventListener("click", () => {
-    const name = document.getElementById("remove-subscription").value;
-    if (!name || !wallet.subscriptions[name]) return showToast("Please select a subscription", "error");
-
-    wallet.subscriptions[name].status = "expired";
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    wallet.subscriptions[name].end_date = yesterday.toISOString().split("T")[0];
-
-    renderSettingsPage();
-    wallet.save();
-    showToast(`Subscription "${name}" deactivated!`);
+    showToast(`Subscription "${newName}" updated!`);
   });
 
   // Save commission
@@ -2012,6 +2255,15 @@ function bindSettingsActions() {
     renderSettingsPage();
     wallet.save();
     showToast(`Commission saved: ${value.toFixed(2)} EUR`);
+  });
+
+  // Save PayPal split fallback account
+  document.getElementById("btn-save-paypal-fallback").addEventListener("click", () => {
+    const sel = document.getElementById("paypal-fallback-select");
+    if (!sel) return;
+    wallet.splitFallbackConto = sel.value;
+    wallet.save();
+    showToast(`PayPal fallback account set to "${sel.value}"`);
   });
 }
 
@@ -2235,11 +2487,12 @@ function createChart(canvasId, chartType, data, excludeSaldo = false) {
 function renderAccountsPieChart() {
   if (currentChartAccountsPie) currentChartAccountsPie.destroy();
 
-  const balances = wallet.saldoConti;
   const labels = [];
   const values = [];
 
-  for (const [conto, saldo] of Object.entries(balances)) {
+  // Ordina per saldo discendente (coerente con i chip)
+  const sorted = Object.entries(wallet.saldoConti).sort(([, a], [, b]) => b - a);
+  for (const [conto, saldo] of sorted) {
     if (saldo === 0) continue;
     labels.push(conto.charAt(0).toUpperCase() + conto.slice(1));
     values.push(Math.abs(saldo));
@@ -2286,10 +2539,69 @@ function renderAccountsPieChart() {
 }
 
 /**
- * renderAccountsOverview — popola la lista saldi per conto nella pagina Analytics.
- * Mostra ogni conto con nome, saldo in €, e la percentuale sul totale assoluto.
- * Appare affiancata al pie chart conti nel blocco account-overview-card.
+ * renderAccountsPieChartDash — versione dashboard del doughnut distribuzione saldi per conto.
+ * Renderizza su canvas #chart-accounts-pie-dash, stesso stile di renderAccountsPieChart()
+ * ma con legenda inline (tooltips) e dimensioni adatte al card dashboard.
  */
+function renderAccountsPieChartDash() {
+  if (currentChartAccountsPieDash) currentChartAccountsPieDash.destroy();
+
+  const canvas = document.getElementById("chart-accounts-pie-dash");
+  if (!canvas) return;
+
+  const balances = wallet.saldoConti;
+  const labels = [];
+  const values = [];
+
+  // Raccoglie solo i conti con saldo non zero, ordinati per saldo discendente
+  const sortedDash = Object.entries(wallet.saldoConti).sort(([, a], [, b]) => b - a);
+  for (const [conto, saldo] of sortedDash) {
+    if (saldo === 0) continue;
+    labels.push(conto.charAt(0).toUpperCase() + conto.slice(1));
+    values.push(Math.abs(saldo));
+  }
+
+  if (labels.length === 0) return;
+
+  // Stessa palette di renderAccountsPieChart() per coerenza visiva
+  const palette = [
+    "#6366f1", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6",
+    "#ec4899", "#14b8a6", "#f97316", "#06b6d4", "#84cc16"
+  ];
+  const colors = labels.map((_, i) => palette[i % palette.length]);
+  const total = values.reduce((a, b) => a + b, 0);
+
+  currentChartAccountsPieDash = new Chart(canvas.getContext("2d"), {
+    type: "doughnut",
+    data: {
+      labels,
+      datasets: [{
+        data: values,
+        backgroundColor: colors,
+        borderWidth: 2,
+        borderColor: getChartThemeColors().borderColor
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            // Tooltip mostra nome conto, importo e percentuale
+            label: (ctx) => {
+              const val = ctx.parsed;
+              const pct = total > 0 ? ((val / total) * 100).toFixed(1) : 0;
+              return ` ${ctx.label}: ${val.toFixed(2)} \u20AC (${pct}%)`;
+            }
+          }
+        }
+      }
+    }
+  });
+}
+
 /**
  * renderAccountsOverview — popola i chip saldi nella pagina Analytics.
  * Riusa gli stessi .balance-chip della dashboard per coerenza visiva.
@@ -2300,13 +2612,18 @@ function renderAccountsOverview() {
 
   listEl.innerHTML = "";
 
-  for (const [conto, saldo] of Object.entries(wallet.saldoConti)) {
+  const totalAbs = Object.values(wallet.saldoConti).reduce((sum, s) => sum + Math.abs(s), 0);
+  // Ordina per saldo discendente
+  const sorted = Object.entries(wallet.saldoConti).sort(([, a], [, b]) => b - a);
+  for (const [conto, saldo] of sorted) {
+    const pct = totalAbs > 0 ? ((Math.abs(saldo) / totalAbs) * 100).toFixed(1) : "0.0";
     const chip = document.createElement("div");
     chip.className = "balance-chip";
     chip.title = "Double-click to see account detail";
     chip.innerHTML = `
       <span class="balance-chip-name">${conto.charAt(0).toUpperCase() + conto.slice(1)}</span>
       <span class="balance-chip-value ${saldo >= 0 ? 'positive' : 'negative'}">${saldo.toFixed(2)} &euro;</span>
+      <span class="balance-chip-pct">${pct}%</span>
     `;
     // Doppio click: apre il modal dettaglio per questo conto
     chip.addEventListener("dblclick", () => openAccountDetailModal(conto));
@@ -2609,7 +2926,7 @@ function renderNetworthPieChart() {
   currentChartNetworthPie = new Chart(canvas.getContext("2d"), {
     type: "doughnut",
     data: {
-      labels: ["Liquidità", "Investimenti", "Depositi"],
+      labels: ["Cash", "Investments", "Deposit Accounts"],
       datasets: [{
         data: [liquidita, investmentsVal, depositsVal],
         backgroundColor: colors,

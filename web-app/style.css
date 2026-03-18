@@ -427,6 +427,11 @@ body {
   color: var(--color-text);
 }
 
+/* Titoli di pagina (Dashboard, Analytics, ecc.) — più grandi dei titoli di sezione */
+.section-title.page-title {
+  font-size: 1.5rem;
+}
+
 .nav-separator { display: none; }
 
 /* ======================== SUMMARY CARDS ======================== */
@@ -582,103 +587,226 @@ body {
   flex-shrink: 0;
 }
 
-/* ======================== NET WORTH BREAKDOWN ======================== */
-.networth-breakdown-body {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+/* ======================== NET WORTH + ACCOUNTS — CARD UNIFICATA ======================== */
+
+/* Card contenitore: flex row, occupa tutta la larghezza */
+.dashboard-overview-card {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 0;
+  margin-bottom: 1.5rem;
+  padding: 0; /* il padding è gestito dalle sezioni interne */
+  overflow: hidden;
+}
+
+/* Sezione Net Worth (sinistra): si adatta al proprio contenuto */
+.overview-networth-section {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 1rem 1.25rem;
+  min-width: 0;
+}
+
+/* Sezione Accounts (destra): prende lo spazio rimanente */
+.overview-accounts-section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 1rem 1.25rem;
+  min-width: 0;
+}
+
+/* Etichetta sezione (sopra il contenuto) */
+.overview-section-label {
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+  margin-bottom: 0.6rem;
+}
+
+/* Divisore verticale tra le due sezioni */
+.overview-divider {
+  width: 1px;
+  background: var(--color-border);
+  flex-shrink: 0;
+  align-self: stretch;
+  margin: 0.75rem 0;
+}
+
+/* Layout interno sezione Accounts: pie a sinistra + chip a destra */
+.dash-accounts-layout {
+  display: flex;
   align-items: center;
-  gap: 2rem;
-  padding: 1.5rem;
-  min-height: 270px;
+  gap: 1rem;
+  flex: 1;
+}
+
+/* Contenitore pie chart accounts dashboard */
+.dash-accounts-pie {
+  width: 110px;
+  height: 110px;
+  flex-shrink: 0;
+}
+
+#chart-accounts-pie-dash { max-width: 110px; max-height: 110px; }
+
+/* Chip accounts: wrappabili */
+.overview-accounts-section .account-balances-row {
+  overflow-x: visible;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  padding-bottom: 0;
+}
+
+/* Net Worth breakdown body: riduce il padding (già gestito dal wrapper) */
+.overview-networth-section .networth-breakdown-body {
+  padding: 0;
+}
+
+@media (max-width: 700px) {
+  /* Su mobile la card unificata diventa colonna */
+  .dashboard-overview-card {
+    flex-direction: column;
+  }
+  .overview-divider {
+    width: auto;
+    height: 1px;
+    margin: 0 0.75rem;
+    align-self: auto;
+  }
+  /* Su mobile il layout accounts impila pie e chip verticalmente */
+  .dash-accounts-layout {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+.networth-breakdown-body {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 1.25rem;
+  padding: 0.9rem 1.25rem;
 }
 
 .networth-pie-side {
   display: flex;
   justify-content: center;
   align-items: center;
-}
-
-.networth-pie-side canvas {
-  max-width: 250px;
-  max-height: 250px;
-  width: 100%;
-}
-
-.networth-values-side {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.networth-item {
-  display: flex;
-  align-items: center;
-  gap: 0.85rem;
-}
-
-.networth-item-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
   flex-shrink: 0;
 }
 
+.networth-pie-side canvas {
+  max-width: 110px;
+  max-height: 110px;
+  width: 100%;
+}
+
+/* Voci affiancate orizzontalmente — non si espandono oltre il necessario */
+.networth-values-side {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 0.25rem 1.5rem;
+  align-items: center;
+}
+
+/* Ogni voce impilata verticalmente: dot + label sopra, valore e % sotto */
+.networth-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+}
+
+.networth-item-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-bottom: 0.15rem;
+}
+
 .networth-item-label {
-  font-size: 0.85rem;
+  font-size: 0.72rem;
   color: var(--color-text-secondary);
-  flex: 1;
 }
 
 .networth-item-value {
   font-family: var(--font-mono);
-  font-size: 0.95rem;
+  font-size: 0.88rem;
   font-weight: 600;
   color: var(--color-text);
-  text-align: right;
   font-variant-numeric: tabular-nums;
 }
 
 .networth-item-pct {
-  font-size: 0.72rem;
+  font-size: 0.65rem;
   color: var(--color-text-muted);
-  text-align: right;
-  margin-top: 0.1rem;
 }
 
 .networth-item-link {
   cursor: pointer;
   border-radius: var(--radius-md);
-  padding: 0.3rem 0.4rem;
-  margin: -0.3rem -0.4rem;
+  padding: 0.25rem 0.35rem;
+  margin: -0.25rem -0.35rem;
   transition: background var(--transition);
 }
 
 .networth-item-link:hover { background: var(--color-primary-subtle); }
 .networth-item-link:hover .networth-item-label { color: var(--color-primary); }
 
+/* Riga totale: separata dalle voci con bordo sinistro */
 .networth-total-row {
-  margin-top: 0.25rem;
-  padding-top: 0.75rem;
-  border-top: 1px solid var(--color-border);
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+  border-left: 1px solid var(--color-border);
+  padding-left: 1.25rem;
+  margin-left: 0.25rem;
+}
+
+.networth-total-row .networth-item-label {
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
 }
 
 .networth-total-row .networth-item-value {
-  font-size: 1.05rem;
+  font-size: 1rem;
   color: var(--color-primary);
+  font-weight: 700;
 }
 
 @media (max-width: 600px) {
   .networth-breakdown-body {
-    grid-template-columns: 1fr;
-    min-height: auto;
+    flex-wrap: wrap;
+    padding: 0.75rem 1rem;
   }
   .networth-pie-side canvas {
-    max-width: 190px;
-    max-height: 190px;
+    max-width: 90px;
+    max-height: 90px;
   }
+  .networth-values-side {
+    gap: 0.5rem 1rem;
+  }
+  .networth-total-row {
+    border-left: none;
+    border-top: 1px solid var(--color-border);
+    padding-left: 0;
+    padding-top: 0.5rem;
+    margin-left: 0;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+  }
+  #chart-networth-pie { max-width: 90px; max-height: 90px; }
 }
 
 /* ======================== BALANCE CHIPS ======================== */
@@ -719,6 +847,61 @@ body {
 
 .balance-chip-value.positive { color: var(--color-success); }
 .balance-chip-value.negative { color: var(--color-danger); }
+
+/* Percentuale sul totale assoluto, mostrata accanto al saldo nel chip */
+.balance-chip-pct {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  opacity: 0.75;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ======================== TYPE TOGGLE (Add/Edit Transaction modal) ======================== */
+/* Due grandi bottoni Expense / Income che sostituiscono il select a tendina */
+.type-toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.type-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  padding: 0.65rem 1rem;
+  border: 1.5px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition);
+  font-family: var(--font);
+}
+
+.type-btn:hover {
+  border-color: var(--color-text-muted);
+  color: var(--color-text);
+  background: var(--color-surface-hover);
+}
+
+/* Stato attivo Expense: rosso */
+.type-btn-expense.active {
+  background: var(--color-danger-bg);
+  border-color: var(--color-danger);
+  color: var(--color-danger-text);
+}
+
+/* Stato attivo Income: verde */
+.type-btn-income.active {
+  background: var(--color-success-bg);
+  border-color: var(--color-success);
+  color: var(--color-success-text);
+}
 
 /* ======================== ACTION BAR & BUTTONS ======================== */
 .action-bar {
@@ -1594,7 +1777,7 @@ tbody tr:hover { background: var(--color-primary-subtle); }
 #chart-main          { max-height: 380px; }
 #chart-inv-pie       { max-width: 360px; max-height: 360px; margin: 0 auto; display: block; }
 #chart-accounts-pie  { max-width: 120px; max-height: 120px; }
-#chart-networth-pie  { max-width: 260px; max-height: 260px; }
+#chart-networth-pie  { max-width: 110px; max-height: 110px; }
 
 /* Pulsanti selezione tipo chart */
 .chart-buttons {
@@ -2554,7 +2737,9 @@ input[type="file"]::file-selector-button {
 .tags-list { display: flex; flex-wrap: wrap; gap: 0.4rem; padding: 1rem 1.5rem; }
 
 .tag {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
   padding: 0.25rem 0.65rem;
   border-radius: 4px;
   font-size: 0.73rem;
@@ -2563,6 +2748,28 @@ input[type="file"]::file-selector-button {
   color: var(--color-primary);
   border: 1px solid rgba(184,146,46,0.2);
 }
+
+/* Bottone × di eliminazione — visibile on hover sulla tag */
+.tag-deletable .tag-delete-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  font-size: 0.75rem;
+  line-height: 1;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+  padding: 0;
+  margin-left: 0.1rem;
+  border-radius: 2px;
+}
+.tag-deletable:hover .tag-delete-btn { opacity: 1; }
+.tag-deletable .tag-delete-btn:hover { color: var(--color-danger); }
 
 .tag-account {
   background: #dbeafe;
@@ -2615,6 +2822,58 @@ input[type="file"]::file-selector-button {
 
 .sub-card-details { display: flex; flex-direction: column; gap: 0.1rem; font-size: 0.75rem; color: var(--color-text-secondary); }
 .sub-card-amount  { font-family: var(--font-mono); font-weight: 600; color: var(--color-text); }
+
+/* Badges: status + frequenza affiancati nell'header */
+.sub-card-badges {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex-shrink: 0;
+}
+
+/* Badge frequenza (Monthly / Annual) */
+.sub-freq-badge {
+  font-size: 0.60rem;
+  font-weight: 700;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  background: var(--color-primary-bg, rgba(184,146,46,0.12));
+  color: var(--color-primary);
+  letter-spacing: 0.02em;
+}
+
+/* Bottoni azione inline sulla card */
+.sub-card-actions {
+  display: flex;
+  gap: 0.4rem;
+  margin-top: 0.65rem;
+  flex-wrap: wrap;
+}
+
+/* Variante extra-small dei bottoni — più compatta delle btn-sm */
+.btn-xs {
+  font-size: 0.70rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  line-height: 1.4;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  cursor: pointer;
+  transition: opacity var(--transition), box-shadow var(--transition);
+  border: 1px solid transparent;
+}
+.btn-xs svg { width: 11px; height: 11px; }
+.btn-xs:hover { opacity: 0.85; }
+
+/* btn-success (usato per Reactivate) */
+.btn-success {
+  background: var(--color-success);
+  color: #fff;
+  border-color: transparent;
+}
+[data-theme="dark"] .btn-success { background: var(--color-success); }
 
 /* ======================== TOAST ======================== */
 .toast-container {

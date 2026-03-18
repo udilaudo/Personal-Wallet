@@ -37,6 +37,11 @@ class Wallet {
     // Commissione per i giroconti (tra conti non contanti)
     this.commission = user.commission || 0;
 
+    // Conto di fallback per lo split PayPal: quando il saldo PayPal non basta,
+    // la quota eccedente viene addebitata su questo conto.
+    // Se non configurato, usa il primo conto della lista come default.
+    this.splitFallbackConto = user.split_fallback_conto || this.contiList[0] || "";
+
     // Budget mensili per categoria: { "🛒 Spesa": 300, "🍸 Cibo fuori": 100, ... }
     // Ogni budget rappresenta il limite di spesa mensile in euro per quella categoria.
     this.budgets = { ...(user.budgets_list || {}) };
@@ -171,20 +176,19 @@ class Wallet {
         ID: 0,
         Amount: amountPaypal,
         Category: category,
-        Description: description + "Splitted",
+        Description: description + " Splitted",
         Y: y, M: m, D: d,
         Conto: conto,
         Type: type
       });
-
-      // Seconda transazione: parte rimanente pagata con il primo conto
+      // Seconda transazione: quota eccedente sul conto di fallback configurato
       this.transactions.push({
         ID: 0,
         Amount: amountRemaining,
         Category: category,
-        Description: description + "Splitted",
+        Description: description + " Splitted",
         Y: y, M: m, D: d,
-        Conto: this.contiList[0],
+        Conto: this.splitFallbackConto || this.contiList[0],
         Type: type
       });
     } else {
@@ -387,24 +391,53 @@ class Wallet {
     for (const [name, details] of Object.entries(this.subscriptions)) {
       if (details.status !== "active") continue;
 
-      const amount = details.amount;
-      const conto = details.conto;
+      const amount    = details.amount;
+      const conto     = details.conto;
       const startDate = new Date(details.start_date);
+      // Frequenza: "monthly" è il default per compatibilità con dati esistenti
+      const frequency = details.billing_frequency || "monthly";
 
-      // Controlla se esiste già un pagamento per questo mese.
+      // ── MONTHLY: controlla se il mese corrente è già stato pagato ────────
+      // ── ANNUAL:  controlla se l'anno corrente è già stato pagato ──────────
+      //
       // NOTA: il controllo include anche la variante "+ Splitted" perché nel caso
       // di split PayPal la descrizione salvata è "Subscription X + Splitted", non
       // "Subscription X". Senza questo controllo, la transazione verrebbe aggiunta
       // ad ogni ricarica della pagina se il pagamento era stato splittato.
-      const alreadyPaid = this.transactions.some(
-        t => t.M === m && t.Y === y && (
-          t.Description === `Subscription ${name}` ||
-          t.Description === `Subscription ${name} + Splitted`
-        )
-      );
+      let alreadyPaid;
 
-      // Se non è stato ancora pagato e siamo oltre il giorno di inizio
-      if (!alreadyPaid && d >= startDate.getDate()) {
+      if (frequency === "annual") {
+        // Per abbonamenti annuali: basta un pagamento per anno (non importa il mese)
+        alreadyPaid = this.transactions.some(
+          t => t.Y === y && (
+            t.Description === `Subscription ${name}` ||
+            t.Description === `Subscription ${name} + Splitted`
+          )
+        );
+      } else {
+        // Per abbonamenti mensili: un pagamento per mese
+        alreadyPaid = this.transactions.some(
+          t => t.M === m && t.Y === y && (
+            t.Description === `Subscription ${name}` ||
+            t.Description === `Subscription ${name} + Splitted`
+          )
+        );
+      }
+
+      // Condizione per pagare:
+      // - Monthly: siamo oltre il giorno di inizio nel mese corrente
+      // - Annual:  siamo nel mese di inizio E oltre il giorno di inizio
+      let shouldPay = false;
+      if (frequency === "annual") {
+        // Paga solo nel mese dell'anniversario (stesso mese del start_date)
+        shouldPay = !alreadyPaid
+          && m === (startDate.getMonth() + 1)
+          && d >= startDate.getDate();
+      } else {
+        shouldPay = !alreadyPaid && d >= startDate.getDate();
+      }
+
+      if (shouldPay) {
         let splitAmount = false;
         let amountPaypal = 0;
         let amountRemaining = 0;
@@ -420,8 +453,8 @@ class Wallet {
         }
 
         if (splitAmount) {
-          this.add(amountPaypal, "🔁 Abbonamenti", `Subscription ${name} + Splitted`, y, m, startDate.getDate(), conto, 0);
-          this.add(amountRemaining, "🔁 Abbonamenti", `Subscription ${name} + Splitted`, y, m, startDate.getDate(), this.contiList[0], 0);
+          this.add(amountPaypal,    "🔁 Abbonamenti", `Subscription ${name} + Splitted`, y, m, startDate.getDate(), conto,                                      0);
+          this.add(amountRemaining, "🔁 Abbonamenti", `Subscription ${name} + Splitted`, y, m, startDate.getDate(), this.splitFallbackConto || this.contiList[0], 0);
         } else {
           this.add(amount, "🔁 Abbonamenti", `Subscription ${name}`, y, m, startDate.getDate(), conto, 0);
         }
@@ -624,6 +657,8 @@ class Wallet {
       contiList: this.contiList,
       subscriptions: this.subscriptions,
       commission: this.commission,
+      // Conto di fallback per lo split PayPal
+      splitFallbackConto: this.splitFallbackConto || "",
       // Salviamo anche i budget mensili per categoria e il budget totale
       budgets: this.budgets || {},
       totalBudget: this.totalBudget || 0
@@ -647,6 +682,8 @@ class Wallet {
       this.contiList = data.contiList || this.contiList;
       this.subscriptions = data.subscriptions || this.subscriptions;
       this.commission = data.commission || 0;
+      // Ripristina il conto fallback PayPal se presente nel salvataggio
+      if (data.splitFallbackConto) this.splitFallbackConto = data.splitFallbackConto;
       // Ripristina i budget mensili se presenti nel salvataggio
       this.budgets = data.budgets || this.budgets || {};
       this.totalBudget = data.totalBudget || 0;
